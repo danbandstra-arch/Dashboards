@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.9.7
+// @version      2.9.8
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -642,6 +642,7 @@
       consultantsByRequestType: new Map(),
       byManager: new Map(),
       byDeliverable: new Map(),
+      byIndustry: new Map(),
       byVRank: new Map(),
       byRenewalRank: new Map(),
       dealByDeliverable: new Map(),
@@ -662,6 +663,7 @@
     summary.consultants.add(row.consultant);
     incrementMap(summary.byManager, row.manager || "(blank)");
     incrementMap(summary.byDeliverable, deliverableLabel(row));
+    incrementMap(summary.byIndustry, row.industry || "(blank)");
     addCustomerRankMetric(summary.byVRank, row.vrank, row);
     addCustomerRankMetric(summary.byRenewalRank, row.renewalRank, row);
     addDealMetric(summary, row);
@@ -1356,6 +1358,7 @@
       const activeVerticals = verticalSummariesFromRows(active.rows);
       const maxVerticalTotal = Math.max(...activeVerticals.map((vertical) => vertical.total), 1);
       const isAllVerticals = activeBase.name === summaryData.org.name;
+      const isVerticalView = !isDealLookup && summaryData.verticals.some((vertical) => vertical.name === activeBase.name);
 
       root.innerHTML = `
         <div class="scd-modal-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(CONFIG.title)}">
@@ -1436,6 +1439,10 @@
               <div class="scd-panel-title">Deal Analysis by Deliverable</div>
               ${dealAnalysisTable(active)}
             </div>
+            ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Company Industry</div>
+              ${rankedTable(active.byIndustry, "Company Industry", 0, active.total)}
+            </div>` : ""}
             <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">SC Staffing Drilldown</div>
               ${scDrilldown(active)}
@@ -1948,6 +1955,7 @@
   function drillForLabel(label, value) {
     if (/manager/i.test(label)) return { manager: value };
     if (/deliverable/i.test(label)) return { deliverable: value };
+    if (/company industry/i.test(label)) return { industry: value };
     if (/team/i.test(label)) return { team: value };
     return {};
   }
