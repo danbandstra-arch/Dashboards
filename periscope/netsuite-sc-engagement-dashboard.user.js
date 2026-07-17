@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.9.5
+// @version      2.9.6
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -25,7 +25,7 @@
       "DAB- FY27 Raw SC Engagement Data for Dashboard Codex",
       "RTR - FY27 Raw SC Engagement Data for Codex"
     ],
-    alwaysShowLauncherOnNetSuite: true,
+    alwaysShowLauncherOnNetSuite: false,
     autoOpenDashboard: false,
     preferCsvExport: true,
     exportSize: "50000",
@@ -89,7 +89,13 @@
   function isTargetSavedSearch() {
     const currentSearchId = new URLSearchParams(window.location.search).get("searchid");
     const searchIdMatches = CONFIG.targetSearchIds.includes(currentSearchId);
-    const pageText = normalizeText(document.title + " " + (document.body?.innerText || ""));
+    const pageTitle = [
+      document.title,
+      document.querySelector("h1")?.innerText,
+      document.querySelector(".uir-page-title")?.innerText,
+      document.querySelector(".uir-record-name")?.innerText
+    ].join(" ");
+    const pageText = normalizeText(pageTitle);
     const titleMatches = CONFIG.targetTitles.some((title) => pageText.includes(title));
     return searchIdMatches || titleMatches;
   }
@@ -2911,8 +2917,11 @@
 
   function ensureLauncher() {
     installStyles();
+    if (!isTargetSavedSearch()) {
+      document.getElementById(LAUNCHER_ID)?.remove();
+      return;
+    }
     if (document.getElementById(LAUNCHER_ID)) return;
-    document.getElementById(LAUNCHER_ID)?.remove();
 
     const button = document.createElement("button");
     button.id = LAUNCHER_ID;
@@ -2926,7 +2935,8 @@
 
   async function boot() {
     if (!isTargetSavedSearch()) {
-      if (CONFIG.alwaysShowLauncherOnNetSuite) ensureLauncher();
+      document.getElementById(ROOT_ID)?.remove();
+      document.getElementById(LAUNCHER_ID)?.remove();
       return;
     }
     ensureLauncher();
@@ -2965,7 +2975,12 @@
   }
 
   function initLauncherOnly() {
-    if (isTargetSavedSearch() || CONFIG.alwaysShowLauncherOnNetSuite) ensureLauncher();
+    if (isTargetSavedSearch()) {
+      ensureLauncher();
+    } else {
+      document.getElementById(LAUNCHER_ID)?.remove();
+      document.getElementById(ROOT_ID)?.remove();
+    }
   }
 
   if (document.readyState === "loading") {
