@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.9.8
+// @version      2.10.0
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -46,6 +46,7 @@
       vertical: ["SC Vertical", "Industry Family"],
       salesVertical: ["Sales Vertical", "Industry Group", "Sales Industry Group"],
       industry: ["Company Industry", "Industry", "Sub Industry", "Sub-Industry"],
+      industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Company Industry Subgroup", "Company Industry Sub Group"],
       requestType: ["Request Type"],
       salesTeam: ["Sales Team", "Sales Org", "Sales Organization"],
       legacyOrg: ["Legacy Org", "Legacy Organization", "SC Legacy Org"],
@@ -305,6 +306,7 @@
     const verticalIdx = findColumnIndex(headers, CONFIG.columnAliases.vertical);
     const salesVerticalIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVertical);
     const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry);
+    const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
     const requestTypeIdx = findColumnIndex(headers, CONFIG.columnAliases.requestType);
     const salesTeamIdx = findColumnIndex(headers, CONFIG.columnAliases.salesTeam);
     const legacyOrgIdx = findColumnIndex(headers, CONFIG.columnAliases.legacyOrg);
@@ -348,6 +350,7 @@
         vertical: displayVertical(cells[verticalIdx] || "(blank)"),
         salesVertical: salesVerticalIdx >= 0 ? displayVertical(cells[salesVerticalIdx] || "(blank)") : displayVertical(cells[verticalIdx] || "(blank)"),
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
+        industrySubgroup: industrySubgroupIdx >= 0 ? cells[industrySubgroupIdx] || "(blank)" : "(industry subgroup column missing)",
         requestType: cells[requestTypeIdx] || "(blank)",
         salesTeam: salesTeamIdx >= 0 ? normalizeOrg(cells[salesTeamIdx]) : normalizeOrg(cells[requestTypeIdx]),
         legacyOrg: legacyOrgIdx >= 0 ? normalizeOrg(cells[legacyOrgIdx]) : "(legacy org missing)",
@@ -643,6 +646,7 @@
       byManager: new Map(),
       byDeliverable: new Map(),
       byIndustry: new Map(),
+      byForecastGrade: new Map(),
       byVRank: new Map(),
       byRenewalRank: new Map(),
       dealByDeliverable: new Map(),
@@ -664,6 +668,7 @@
     incrementMap(summary.byManager, row.manager || "(blank)");
     incrementMap(summary.byDeliverable, deliverableLabel(row));
     incrementMap(summary.byIndustry, row.industry || "(blank)");
+    incrementMap(summary.byForecastGrade, forecastGradeLabel(row));
     addCustomerRankMetric(summary.byVRank, row.vrank, row);
     addCustomerRankMetric(summary.byRenewalRank, row.renewalRank, row);
     addDealMetric(summary, row);
@@ -1188,6 +1193,25 @@
         color: var(--rw-ink-deep);
       }
       .scd-muted { color: var(--rw-slate); }
+      .scd-inline-insight {
+        background: linear-gradient(90deg, rgba(199, 70, 52, 0.12), rgba(245, 229, 184, 0.35));
+        border: 1px solid rgba(199, 70, 52, 0.22);
+        border-radius: 10px;
+        color: var(--rw-ink);
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1.45;
+        margin: 0 0 12px;
+        padding: 10px 12px;
+      }
+      .scd-inline-insight strong {
+        color: var(--rw-red);
+        font-size: 16px;
+      }
+      .scd-inline-insight:hover {
+        border-color: rgba(199, 70, 52, 0.42);
+        box-shadow: 0 8px 22px rgba(49, 45, 42, 0.08);
+      }
       .scd-record-link {
         color: var(--rw-blue);
         font-weight: 700;
@@ -1442,6 +1466,14 @@
             ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Company Industry</div>
               ${rankedTable(active.byIndustry, "Company Industry", 0, active.total)}
+            </div>` : ""}
+            ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Industry Subgroup by Sales Motion</div>
+              ${industrySubgroupMotionTable(active)}
+            </div>` : ""}
+            ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Forecast Grade</div>
+              ${forecastGradePortlet(active)}
             </div>` : ""}
             <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">SC Staffing Drilldown</div>
@@ -1810,6 +1842,104 @@
     );
   }
 
+  function forecastGradeLabel(row) {
+    return normalizeText(row.forecastGrade) || "Missing Forecast Grade";
+  }
+
+  function forecastGradePortlet(summary) {
+    const missing = summary.byForecastGrade.get("Missing Forecast Grade") || 0;
+    const missingPct = summary.total ? missing / summary.total : 0;
+    const sorted = sortedEntries(summary.byForecastGrade);
+    if (!sorted.length) return `<div class="scd-warning">No Forecast Grade data found. Confirm Forecast Grade is included in the export.</div>`;
+    return `
+      <div class="scd-inline-insight" data-scd-drill='${drillAttr({ forecastGrade: "Missing Forecast Grade" })}'>
+        <strong>${(missingPct * 100).toFixed(1)}%</strong> of ${escapeHtml(summary.name)} deals are missing Forecast Grade
+        <span class="scd-muted">(${formatNumber(missing)} of ${formatNumber(summary.total)} SCRs)</span>
+      </div>
+      ${simpleTable(
+        ["Forecast Grade", "Volume", "% of Shown", "Unique SCs"],
+        sorted.map(([grade, volume]) => {
+          const gradeRows = summary.rows.filter((row) => forecastGradeLabel(row) === grade);
+          const uniqueScs = new Set(gradeRows.map((row) => row.consultant).filter(Boolean)).size;
+          return [
+            { display: grade, value: grade, drill: { forecastGrade: grade } },
+            { display: formatNumber(volume), value: volume, heat: true, drill: { forecastGrade: grade } },
+            { display: summary.total ? `${((volume / summary.total) * 100).toFixed(0)}%` : "0%", value: summary.total ? volume / summary.total : 0, heat: true, drill: { forecastGrade: grade } },
+            { display: formatNumber(uniqueScs), value: uniqueScs, heat: true, drill: { forecastGrade: grade } }
+          ];
+        }),
+        [
+          { display: "Total", value: "Total" },
+          { display: formatNumber(summary.total), value: summary.total },
+          { display: summary.total ? "100%" : "0%", value: summary.total ? 1 : 0 },
+          { display: formatNumber(summary.consultants.size), value: summary.consultants.size }
+        ]
+      )}
+    `;
+  }
+
+  function salesMotionBucket(row) {
+    const requestType = requestTypeLabel(row);
+    if (/channel/i.test(requestType)) return "Channel";
+    if (/amo/i.test(requestType)) return "AMO";
+    if (/direct/i.test(requestType)) return "Direct";
+    return "Other";
+  }
+
+  function industrySubgroupMotionTable(summary) {
+    const groups = new Map();
+    summary.rows.forEach((row) => {
+      const subgroup = normalizeText(row.industrySubgroup) || "(blank)";
+      const motion = salesMotionBucket(row);
+      if (!groups.has(subgroup)) {
+        groups.set(subgroup, { subgroup, total: 0, amo: 0, direct: 0, channel: 0, other: 0 });
+      }
+      const metric = groups.get(subgroup);
+      metric.total += 1;
+      if (motion === "AMO") metric.amo += 1;
+      else if (motion === "Direct") metric.direct += 1;
+      else if (motion === "Channel") metric.channel += 1;
+      else metric.other += 1;
+    });
+
+    const entries = Array.from(groups.values()).sort((a, b) => b.total - a.total || a.subgroup.localeCompare(b.subgroup));
+    if (!entries.length) return `<div class="scd-warning">No Industry Subgroup data found. Confirm Industry Subgroup is included in the export.</div>`;
+    const totals = entries.reduce(
+      (sum, metric) => {
+        sum.total += metric.total;
+        sum.amo += metric.amo;
+        sum.direct += metric.direct;
+        sum.channel += metric.channel;
+        sum.other += metric.other;
+        return sum;
+      },
+      { total: 0, amo: 0, direct: 0, channel: 0, other: 0 }
+    );
+    const headers = totals.other ? ["Industry Subgroup", "Total", "% of Shown", "AMO", "Direct", "Channel", "Other"] : ["Industry Subgroup", "Total", "% of Shown", "AMO", "Direct", "Channel"];
+    const rows = entries.map((metric) => {
+      const base = [
+        { display: metric.subgroup, value: metric.subgroup, drill: { industrySubgroup: metric.subgroup } },
+        { display: formatNumber(metric.total), value: metric.total, heat: true, drill: { industrySubgroup: metric.subgroup } },
+        { display: totals.total ? `${((metric.total / totals.total) * 100).toFixed(0)}%` : "0%", value: totals.total ? metric.total / totals.total : 0, heat: true, drill: { industrySubgroup: metric.subgroup } },
+        { display: formatNumber(metric.amo), value: metric.amo, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "AMO" } },
+        { display: formatNumber(metric.direct), value: metric.direct, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "Direct" } },
+        { display: formatNumber(metric.channel), value: metric.channel, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "Channel" } }
+      ];
+      if (totals.other) base.push({ display: formatNumber(metric.other), value: metric.other, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "Other" } });
+      return base;
+    });
+    const footer = [
+      { display: "Total", value: "Total" },
+      { display: formatNumber(totals.total), value: totals.total },
+      { display: totals.total ? "100%" : "0%", value: totals.total ? 1 : 0 },
+      { display: formatNumber(totals.amo), value: totals.amo },
+      { display: formatNumber(totals.direct), value: totals.direct },
+      { display: formatNumber(totals.channel), value: totals.channel }
+    ];
+    if (totals.other) footer.push({ display: formatNumber(totals.other), value: totals.other });
+    return simpleTable(headers, rows, footer);
+  }
+
   function customersByVRankTable(summary) {
     return customersByRankTable(summary.byVRank, "VRank", "vrank", "VRank");
   }
@@ -1956,6 +2086,7 @@
     if (/manager/i.test(label)) return { manager: value };
     if (/deliverable/i.test(label)) return { deliverable: value };
     if (/company industry/i.test(label)) return { industry: value };
+    if (/forecast grade/i.test(label)) return { forecastGrade: value };
     if (/team/i.test(label)) return { team: value };
     return {};
   }
@@ -2412,6 +2543,7 @@
         if (!value) return true;
         if (key === "requestType") return requestTypeLabel(row) === value;
         if (key === "salesTeam") return normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg(value);
+        if (key === "salesMotion") return salesMotionBucket(row) === value;
         if (key === "leadSc") return value === "true" ? isLeadScValue(row.leadSc) : !isLeadScValue(row.leadSc);
         if (key === "oppBucket") return opportunityBucket(row.oppStatus) === value;
         if (key === "deliverable") return deliverableLabel(row) === value;
@@ -2420,6 +2552,8 @@
         if (key === "salesRep") return normalizeText(row.salesRep || "(blank)") === normalizeText(value);
         if (key === "vrank") return normalizeText(row.vrank) === normalizeText(value);
         if (key === "renewalRank") return normalizeText(row.renewalRank) === normalizeText(value);
+        if (key === "forecastGrade") return forecastGradeLabel(row) === value;
+        if (key === "industrySubgroup") return normalizeText(row.industrySubgroup) === normalizeText(value);
         return normalizeText(row[key]) === normalizeText(value);
       })
     );
@@ -2553,7 +2687,8 @@
       leadSc: "all",
       month: "all",
       deliverable: "all",
-      industry: "all"
+      industry: "all",
+      industrySubgroup: "all"
     };
   }
 
@@ -2568,6 +2703,7 @@
         }, new Map())), filters.month)}
         ${filterSelect("Deliverable", "deliverable", uniqueSortedValues(rows.map(deliverableLabel)), filters.deliverable)}
         ${filterSelect("Industry", "industry", uniqueSorted(rows, "industry"), filters.industry)}
+        ${filterSelect("Industry Subgroup", "industrySubgroup", uniqueSorted(rows, "industrySubgroup"), filters.industrySubgroup)}
         <button class="scd-tab" type="button" data-scd-clear-detail-filters>Clear filters</button>
       </div>
     `;
@@ -2607,6 +2743,7 @@
       if (filters.month !== "all" && normalizeText(row.month) !== filters.month) return false;
       if (filters.deliverable !== "all" && deliverableLabel(row) !== filters.deliverable) return false;
       if (filters.industry !== "all" && normalizeText(row.industry) !== filters.industry) return false;
+      if (filters.industrySubgroup !== "all" && normalizeText(row.industrySubgroup) !== filters.industrySubgroup) return false;
       return true;
     });
   }
@@ -2614,7 +2751,7 @@
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Sales Team", "Sales Vertical", "Manager", "Team", "Industry Family", "Company Industry", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Sales Team", "Sales Vertical", "Manager", "Team", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
@@ -2631,6 +2768,7 @@
         row.team,
         row.vertical,
         row.industry,
+        row.industrySubgroup,
         requestTypeLabel(row),
         deliverableLabel(row),
         row.oppStatus,
@@ -2650,7 +2788,7 @@
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "Sales Team", "Sales Vertical", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "Sales Team", "Sales Vertical", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       <div class="scd-table-scroll">
@@ -2672,6 +2810,8 @@
                   row.manager,
                   row.salesTeam,
                   row.salesVertical,
+                  row.industry,
+                  row.industrySubgroup,
                   requestTypeLabel(row),
                   deliverableLabel(row),
                   row.oppStatus,
