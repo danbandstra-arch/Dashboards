@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.10.0
+// @version      2.10.1
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -45,8 +45,8 @@
     columnAliases: {
       vertical: ["SC Vertical", "Industry Family"],
       salesVertical: ["Sales Vertical", "Industry Group", "Sales Industry Group"],
-      industry: ["Company Industry", "Industry", "Sub Industry", "Sub-Industry"],
-      industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Company Industry Subgroup", "Company Industry Sub Group"],
+      industry: ["Company Industry", "Customer Industry", "Industry"],
+      industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Sub Industry", "Sub-Industry", "Company Industry Subgroup", "Company Industry Sub Group"],
       requestType: ["Request Type"],
       salesTeam: ["Sales Team", "Sales Org", "Sales Organization"],
       legacyOrg: ["Legacy Org", "Legacy Organization", "SC Legacy Org"],
@@ -277,18 +277,21 @@
     return score;
   }
 
-  function findColumnIndex(headers, aliases) {
+  function findColumnIndex(headers, aliases, excludedIndexes = []) {
+    const excluded = new Set(excludedIndexes.filter((idx) => idx >= 0));
     const keyed = headers.map((header) => headerKey(header));
     for (const alias of aliases) {
       const aliasKey = headerKey(alias);
-      const idx = keyed.indexOf(aliasKey);
+      const idx = keyed.findIndex((header, headerIdx) => !excluded.has(headerIdx) && header === aliasKey);
       if (idx !== -1) return idx;
     }
     for (const alias of aliases) {
       const aliasKey = headerKey(alias);
-      const idx = keyed.findIndex((header) => {
+      const idx = keyed.findIndex((header, headerIdx) => {
+        if (excluded.has(headerIdx)) return false;
         if (!header || !aliasKey) return false;
         if (aliasKey === "industry" && header === "industryfamily") return false;
+        if (aliasKey === "industry" && /subgroup|subindustry/.test(header)) return false;
         return header.includes(aliasKey) || aliasKey.includes(header);
       });
       if (idx !== -1) return idx;
@@ -305,8 +308,8 @@
   function rowsFromCells(cellsRows, headers) {
     const verticalIdx = findColumnIndex(headers, CONFIG.columnAliases.vertical);
     const salesVerticalIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVertical);
-    const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry);
     const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
+    const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry, [industrySubgroupIdx]);
     const requestTypeIdx = findColumnIndex(headers, CONFIG.columnAliases.requestType);
     const salesTeamIdx = findColumnIndex(headers, CONFIG.columnAliases.salesTeam);
     const legacyOrgIdx = findColumnIndex(headers, CONFIG.columnAliases.legacyOrg);
@@ -1903,7 +1906,9 @@
     });
 
     const entries = Array.from(groups.values()).sort((a, b) => b.total - a.total || a.subgroup.localeCompare(b.subgroup));
-    if (!entries.length) return `<div class="scd-warning">No Industry Subgroup data found. Confirm Industry Subgroup is included in the export.</div>`;
+    if (!entries.length || entries.every((entry) => entry.subgroup === "(industry subgroup column missing)")) {
+      return `<div class="scd-warning">No Industry Subgroup data found. Confirm the export includes the exact Industry Subgroup result column.</div>`;
+    }
     const totals = entries.reduce(
       (sum, metric) => {
         sum.total += metric.total;
