@@ -4,6 +4,8 @@
 // @version      2.9.5
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
+// @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
+// @downloadURL  https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
 // @match        https://*.app.netsuite.com/*/app/common/search/searchresults.nl*
 // @match        https://*.app.netsuite.com/app/common/search/searchresults.nl*
 // @match        https://*.app.netsuite.com/*/app/common/search/savedsearchresults.nl*
