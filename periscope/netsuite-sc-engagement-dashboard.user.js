@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.9.6
+// @version      2.9.7
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -61,6 +61,7 @@
       renewalRank: ["Renewal Ranking", "Renewal Rank", "Renewal Ranking Grade", "Renewal Grade"],
       opportunity: ["Opportunity", "Opp"],
       oppStatus: ["Opp Status", "Opportunity Status"],
+      forecastGrade: ["Forecast Grade", "Forecast", "Forecast Category"],
       status: ["SC Status", "Status"],
       asaTotal: ["ASA Total", "ASA"],
       gasaTotal: ["GASA Total", "GASA"],
@@ -319,6 +320,7 @@
     const renewalRankIdx = findColumnIndex(headers, CONFIG.columnAliases.renewalRank);
     const opportunityIdx = findColumnIndex(headers, CONFIG.columnAliases.opportunity);
     const oppStatusIdx = findColumnIndex(headers, CONFIG.columnAliases.oppStatus);
+    const forecastGradeIdx = findColumnIndex(headers, CONFIG.columnAliases.forecastGrade);
     const statusIdx = findColumnIndex(headers, CONFIG.columnAliases.status);
     const asaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.asaTotal);
     const gasaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.gasaTotal);
@@ -364,6 +366,7 @@
         renewalRank: renewalRankIdx >= 0 ? cells[renewalRankIdx] || "(blank)" : "(renewal rank column missing)",
         opportunity: opportunityIdx >= 0 ? cells[opportunityIdx] || "" : "",
         oppStatus: oppStatusIdx >= 0 ? cells[oppStatusIdx] || "" : "",
+        forecastGrade: forecastGradeIdx >= 0 ? cells[forecastGradeIdx] || "" : "",
         status: statusIdx >= 0 ? cells[statusIdx] || "" : "",
         asaTotal: asaTotalIdx >= 0 ? parseMoney(cells[asaTotalIdx]) : 0,
         gasaTotal: gasaTotalIdx >= 0 ? parseMoney(cells[gasaTotalIdx]) : 0,
@@ -1533,11 +1536,17 @@
       consultant: "",
       company: "",
       opportunity: "",
-      vertical: "all"
+      vertical: "all",
+      forecastGrade: "all",
+      startDate: "",
+      endDate: ""
     };
   }
 
   function dealLookupFilterBar(rows, filters) {
+    const dates = rows.map((row) => row.dateValue).filter(Boolean).sort();
+    const minDate = dates[0] || "";
+    const maxDate = dates[dates.length - 1] || "";
     return `
       <div class="scd-filterbar">
         <label>
@@ -1553,6 +1562,15 @@
           <input type="search" placeholder="Search opportunity" data-scd-deal-lookup-filter="opportunity" value="${escapeHtml(filters.opportunity)}">
         </label>
         ${filterSelectWithAttr("Vertical", "vertical", uniqueSorted(rows, "vertical"), filters.vertical, "data-scd-deal-lookup-filter")}
+        ${filterSelectWithAttr("Forecast Grade", "forecastGrade", uniqueSorted(rows, "forecastGrade"), filters.forecastGrade, "data-scd-deal-lookup-filter")}
+        <label>
+          Begin
+          <input type="date" data-scd-deal-lookup-filter="startDate" value="${escapeHtml(filters.startDate)}" ${minDate ? `min="${escapeHtml(minDate)}"` : ""} ${maxDate ? `max="${escapeHtml(maxDate)}"` : ""}>
+        </label>
+        <label>
+          End
+          <input type="date" data-scd-deal-lookup-filter="endDate" value="${escapeHtml(filters.endDate)}" ${minDate ? `min="${escapeHtml(minDate)}"` : ""} ${maxDate ? `max="${escapeHtml(maxDate)}"` : ""}>
+        </label>
         <button class="scd-tab" type="button" data-scd-run-deal-lookup>Search deals</button>
         <button class="scd-tab" type="button" data-scd-clear-deal-lookup>Clear lookup</button>
       </div>
@@ -1600,7 +1618,10 @@
       normalizeText(filters.consultant) ||
         normalizeText(filters.company) ||
         normalizeText(filters.opportunity) ||
-        filters.vertical !== "all"
+        filters.vertical !== "all" ||
+        filters.forecastGrade !== "all" ||
+        filters.startDate ||
+        filters.endDate
     );
   }
 
@@ -1611,6 +1632,9 @@
       if (!containsText(row.company, filters.company)) return false;
       if (!containsText(row.opportunity, filters.opportunity)) return false;
       if (filters.vertical !== "all" && normalizeText(row.vertical) !== normalizeText(filters.vertical)) return false;
+      if (filters.forecastGrade !== "all" && normalizeText(row.forecastGrade) !== normalizeText(filters.forecastGrade)) return false;
+      if (filters.startDate && (!row.dateValue || row.dateValue < filters.startDate)) return false;
+      if (filters.endDate && (!row.dateValue || row.dateValue > filters.endDate)) return false;
       return true;
     });
   }
@@ -2618,7 +2642,7 @@
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "Sales Team", "Sales Vertical", "Request Type", "Deliverable", "Opp Status", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "Sales Team", "Sales Vertical", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       <div class="scd-table-scroll">
@@ -2643,6 +2667,7 @@
                   requestTypeLabel(row),
                   deliverableLabel(row),
                   row.oppStatus,
+                  row.forecastGrade,
                   row.status,
                   formatCurrency(pipelineRevenue(row)),
                   formatCurrency(rowRevenue(row)),
