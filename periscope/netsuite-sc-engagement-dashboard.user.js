@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.10.3
+// @version      2.10.4
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -55,6 +55,7 @@
       manager: ["Assigned To Manager", "Assigned to Manager", "Manager"],
       deliverable: ["Deliverable", "Engagement Type"],
       date: ["Date Created", "Created Date", "Date Needed", "Exp Close"],
+      oml5: ["OML5", "OM L5", "L5", "OML 5"],
       oml6: ["OML6", "OM L6", "L6", "OML 6"],
       oml7: ["OML7", "OM L7", "L7", "OML 7"],
       internalId: ["Internal ID", "ID"],
@@ -70,6 +71,9 @@
       probability: ["Probability %", "Probability", "Prob %"],
       salesRep: ["Sales Rep", "Sales Representative"],
       salesManager: ["Sales Manager", "Sales Rep Manager", "Rep Manager", "Front Line Manager"],
+      salesGvp: ["Sales GVP", "GVP"],
+      salesAvp: ["Sales AVP", "AVP"],
+      salesVp: ["Sales VP", "Sales VL", "VL"],
       hashtags: ["SCM Hashtags", "Hashtags", "Hash Tags", "SC Hashtags"],
       engagementNotes: ["Engagement Notes", "Engagement: Notes", "Notes"],
       directRepNotes: ["Direct Rep Notes"],
@@ -320,6 +324,7 @@
     const managerIdx = findColumnIndex(headers, CONFIG.columnAliases.manager);
     const deliverableIdx = findColumnIndex(headers, CONFIG.columnAliases.deliverable);
     const dateIdx = findColumnIndex(headers, CONFIG.columnAliases.date);
+    const oml5Idx = findColumnIndex(headers, CONFIG.columnAliases.oml5);
     const oml6Idx = findColumnIndex(headers, CONFIG.columnAliases.oml6);
     const oml7Idx = findColumnIndex(headers, CONFIG.columnAliases.oml7);
     const internalIdIdx = findColumnIndex(headers, CONFIG.columnAliases.internalId);
@@ -335,6 +340,9 @@
     const probabilityIdx = findColumnIndex(headers, CONFIG.columnAliases.probability);
     const salesRepIdx = findColumnIndex(headers, CONFIG.columnAliases.salesRep);
     const salesManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.salesManager);
+    const salesGvpIdx = findColumnIndex(headers, CONFIG.columnAliases.salesGvp);
+    const salesAvpIdx = findColumnIndex(headers, CONFIG.columnAliases.salesAvp);
+    const salesVpIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVp);
     const hashtagsIdx = findColumnIndex(headers, CONFIG.columnAliases.hashtags);
     const engagementNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.engagementNotes);
     const directRepNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.directRepNotes);
@@ -365,6 +373,7 @@
         leadSc: leadScIdx >= 0 ? cells[leadScIdx] || "" : "",
         manager: managerIdx >= 0 ? cells[managerIdx] || "(blank)" : "(manager column missing)",
         deliverable: deliverableIdx >= 0 ? cells[deliverableIdx] || "(blank)" : "(deliverable column missing)",
+        oml5: oml5Idx >= 0 ? cells[oml5Idx] || "" : "",
         oml6: oml6Idx >= 0 ? cells[oml6Idx] || "" : "",
         oml7: oml7Idx >= 0 ? cells[oml7Idx] || "" : "",
         team: deriveTeam(oml6Idx >= 0 ? cells[oml6Idx] || "" : "", cells[requestTypeIdx] || "", deliverableIdx >= 0 ? cells[deliverableIdx] || "" : ""),
@@ -384,6 +393,9 @@
         probability: probabilityIdx >= 0 ? parseProbability(cells[probabilityIdx]) : null,
         salesRep: salesRepIdx >= 0 ? cells[salesRepIdx] || "" : "",
         salesManager: salesManagerIdx >= 0 ? cells[salesManagerIdx] || "" : "",
+        salesGvp: salesGvpIdx >= 0 ? cells[salesGvpIdx] || "" : "",
+        salesAvp: salesAvpIdx >= 0 ? cells[salesAvpIdx] || "" : "",
+        salesVp: salesVpIdx >= 0 ? cells[salesVpIdx] || "" : "",
         hashtags: hashtagsIdx >= 0 ? cells[hashtagsIdx] || "" : "",
         notes: {
           engagementNotes: engagementNotesIdx >= 0 ? cells[engagementNotesIdx] || "" : "",
@@ -2762,7 +2774,7 @@
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Sales Team", "Sales Vertical", "Manager", "VP", "VL/VP", "Team", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
@@ -2773,12 +2785,16 @@
         row.opportunity,
         { display: scLabel(detailSummary, row.consultant), value: row.consultant, html: true, drill: { consultant: row.consultant } },
         row.legacyOrg,
-        row.salesTeam,
-        row.salesVertical,
         row.manager,
+        row.oml5,
         row.oml6,
         row.oml7,
         row.team,
+        row.salesTeam,
+        row.salesVertical,
+        row.salesGvp,
+        row.salesAvp,
+        row.salesVp,
         row.vertical,
         row.industry,
         row.industrySubgroup,
@@ -2801,7 +2817,7 @@
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "Sales Team", "Sales Vertical", "VP", "VL/VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       <div class="scd-table-scroll">
@@ -2821,10 +2837,14 @@
                   row.opportunity,
                   { display: scLabel(detailSummary, row.consultant), value: row.consultant, html: true, drill: { consultant: row.consultant } },
                   row.manager,
-                  row.salesTeam,
-                  row.salesVertical,
+                  row.oml5,
                   row.oml6,
                   row.oml7,
+                  row.salesTeam,
+                  row.salesVertical,
+                  row.salesGvp,
+                  row.salesAvp,
+                  row.salesVp,
                   row.industry,
                   row.industrySubgroup,
                   requestTypeLabel(row),
