@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.10.1
+// @version      2.10.2
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -68,6 +68,7 @@
       gasaTotal: ["GASA Total", "GASA"],
       probability: ["Probability %", "Probability", "Prob %"],
       salesRep: ["Sales Rep", "Sales Representative"],
+      salesManager: ["Sales Manager", "Sales Rep Manager", "Rep Manager", "Front Line Manager"],
       hashtags: ["SCM Hashtags", "Hashtags", "Hash Tags", "SC Hashtags"],
       engagementNotes: ["Engagement Notes", "Engagement: Notes", "Notes"],
       directRepNotes: ["Direct Rep Notes"],
@@ -331,6 +332,7 @@
     const gasaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.gasaTotal);
     const probabilityIdx = findColumnIndex(headers, CONFIG.columnAliases.probability);
     const salesRepIdx = findColumnIndex(headers, CONFIG.columnAliases.salesRep);
+    const salesManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.salesManager);
     const hashtagsIdx = findColumnIndex(headers, CONFIG.columnAliases.hashtags);
     const engagementNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.engagementNotes);
     const directRepNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.directRepNotes);
@@ -378,6 +380,7 @@
         gasaTotal: gasaTotalIdx >= 0 ? parseMoney(cells[gasaTotalIdx]) : 0,
         probability: probabilityIdx >= 0 ? parseProbability(cells[probabilityIdx]) : null,
         salesRep: salesRepIdx >= 0 ? cells[salesRepIdx] || "" : "",
+        salesManager: salesManagerIdx >= 0 ? cells[salesManagerIdx] || "" : "",
         hashtags: hashtagsIdx >= 0 ? cells[hashtagsIdx] || "" : "",
         notes: {
           engagementNotes: engagementNotesIdx >= 0 ? cells[engagementNotesIdx] || "" : "",
@@ -2793,7 +2796,7 @@
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "Sales Team", "Sales Vertical", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "Sales Team", "Sales Vertical", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       <div class="scd-table-scroll">
@@ -2826,6 +2829,7 @@
                   formatCurrency(rowRevenue(row)),
                   formatCurrency(weightedRevenue(row)),
                   row.salesRep,
+                  row.salesManager,
                   row.month,
                   { display: `${formatNumber(noteEntries.length)} notes`, value: noteEntries.length }
                 ];
