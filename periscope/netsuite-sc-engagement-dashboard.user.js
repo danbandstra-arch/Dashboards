@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.0
+// @version      2.12.1
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.0",
+    version: "2.12.1",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
@@ -2592,7 +2592,7 @@
 
   function crossStaffingStats(summary, salesTeam) {
     const teamRows = rowsForSalesTeam(summary, salesTeam).filter((row) => knownSalesVertical(row));
-    const cross = teamRows.filter(isCrossStaffedRow).length;
+    const cross = crossStaffedRowsForSalesTeam(summary, salesTeam).length;
     return {
       salesTeam,
       total: teamRows.length,
@@ -2644,7 +2644,14 @@
   }
 
   function crossStaffedRowsForSalesTeam(summary, salesTeam) {
-    return rowsForSalesTeam(summary, salesTeam).filter(isCrossStaffedRow);
+    const selectedScTeam = isKnownVertical(summary.name) ? summary.name : "";
+    return rowsForSalesTeam(summary, salesTeam).filter((row) => {
+      const salesVertical = knownSalesVertical(row);
+      const scTeam = selectedScTeam || row.vertical;
+      const scKey = industryGroupKey(scTeam);
+      const salesKey = industryGroupKey(salesVertical);
+      return Boolean(scKey && salesKey && scKey !== salesKey);
+    });
   }
 
   function mapEntriesForRows(rows, field) {
