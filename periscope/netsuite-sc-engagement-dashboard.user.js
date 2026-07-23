@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.10.5
+// @version      2.10.8
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,14 +20,16 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
+    version: "2.10.8",
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
+      "SCM.PERISCOPE",
       "DAB- FY27 Raw SC Engagement Data for Dashboard Codex",
       "RTR - FY27 Raw SC Engagement Data for Codex"
     ],
     alwaysShowLauncherOnNetSuite: false,
     autoOpenDashboard: false,
-    preferCsvExport: true,
+    preferCsvExport: false,
     exportSize: "50000",
     // Adjust this to your current org taxonomy. Any extra verticals found in
     // the saved search are still shown after this preferred order.
@@ -43,7 +45,7 @@
       "High Tech"
     ],
     columnAliases: {
-      vertical: ["SC Vertical", "Industry Family"],
+      vertical: ["SC Vertical", "Vertical", "Industry Family"],
       salesVertical: ["Sales Vertical", "Industry Group", "Sales Industry Group"],
       industry: ["Company Industry", "Customer Industry", "Industry"],
       industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Sub Industry", "Sub-Industry", "Company Industry Subgroup", "Company Industry Sub Group"],
@@ -111,6 +113,10 @@
   function currentSearchLabel() {
     const currentSearchId = new URLSearchParams(window.location.search).get("searchid");
     return currentSearchId || CONFIG.targetSearchIds[0];
+  }
+
+  function versionLabel() {
+    return `v${CONFIG.version}`;
   }
 
   function normalizeText(value) {
@@ -364,7 +370,7 @@
     const scManagerNotes3Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes3);
 
     if (verticalIdx < 0 || requestTypeIdx < 0 || consultantIdx < 0) {
-      return { rows: [], error: "Missing one or more required columns: SC Vertical, Request Type, Solution Consultant." };
+      return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical, Request Type, Solution Consultant." };
     }
 
     const rows = cellsRows
@@ -473,7 +479,7 @@
     const csvRows = parseCsv(text).map((row) => row.map(normalizeText));
     const headerIndex = csvRows.findIndex((row) => hasCoreHeaders(row));
     if (headerIndex === -1) {
-      return { rows: [], error: "CSV export downloaded, but required headers were not found." };
+      return { rows: [], error: "The selected/exported CSV did not include the required saved-search headers. Export the saved-search results CSV, then load that file." };
     }
     const headers = csvRows[headerIndex];
     return rowsFromCells(csvRows.slice(headerIndex + 1), headers);
@@ -514,7 +520,7 @@
     });
     const headerIndex = matrix.findIndex((row) => hasCoreHeaders(row));
     if (headerIndex === -1) {
-      return { rows: [], error: "Spreadsheet XML export downloaded, but required headers were not found." };
+      return { rows: [], error: "The selected/exported spreadsheet did not include the required saved-search headers. Export the saved-search results CSV, then load that file." };
     }
     return rowsFromCells(matrix.slice(headerIndex + 1), matrix[headerIndex]);
   }
@@ -1423,7 +1429,7 @@
               <div class="scd-title-block">
                 <div class="scd-title">${escapeHtml(CONFIG.title)}</div>
                 <div class="scd-tagline">Your tool for Performance &amp; Engagement, Reporting &amp; Insights!</div>
-                <div class="scd-subtitle">Saved search ${escapeHtml(currentSearchLabel())} · Built from ${formatNumber(sourceCount)} rows via ${escapeHtml(sourceLabel)}.</div>
+                <div class="scd-subtitle">${escapeHtml(versionLabel())} - Saved search ${escapeHtml(currentSearchLabel())} - Built from ${formatNumber(sourceCount)} rows via ${escapeHtml(sourceLabel)}.</div>
               </div>
             </div>
             <div class="scd-actions">
@@ -3068,7 +3074,7 @@
             <div class="scd-title-block">
               <div class="scd-title">${escapeHtml(CONFIG.title)}</div>
               <div class="scd-tagline">Your tool for Performance &amp; Engagement, Reporting &amp; Insights!</div>
-              <div class="scd-subtitle">Saved search ${escapeHtml(currentSearchLabel())}</div>
+              <div class="scd-subtitle">${escapeHtml(versionLabel())} - Saved search ${escapeHtml(currentSearchLabel())}</div>
             </div>
           </div>
           <div class="scd-actions">
@@ -3174,7 +3180,7 @@
 
     const candidate = findSavedSearchTable();
     if (!candidate) {
-      showWarning("No complete visible results table was found with SC Vertical, Request Type, and Solution Consultant columns.");
+      showWarning("No complete visible results table was found with SC Vertical/Vertical, Request Type, and Solution Consultant columns.");
       return;
     }
 
