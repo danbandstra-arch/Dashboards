@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.11.4
+// @version      2.11.6
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.11.4",
+    version: "2.11.6",
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
       "SCM.PERISCOPE",
@@ -379,6 +379,10 @@
     );
   }
 
+  function isExactSalesVerticalHeader(header) {
+    return ["salesvertical", "industrygroup", "salesindustrygroup"].includes(headerKey(header));
+  }
+
   function findColumnIndex(headers, aliases, excludedIndexes = []) {
     const excluded = new Set(excludedIndexes.filter((idx) => idx >= 0));
     const keyed = headers.map((header) => headerKey(header));
@@ -450,6 +454,7 @@
     const scManagerNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes);
     const scManagerNotes2Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes2);
     const scManagerNotes3Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes3);
+    const hasSalesVerticalSource = salesVerticalIdx >= 0 && isExactSalesVerticalHeader(headers[salesVerticalIdx]);
 
     if ((verticalIdx < 0 && industryIdx < 0) || requestTypeIdx < 0 || consultantIdx < 0) {
       return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical or Company Industry, Request Type, Solution Consultant." };
@@ -459,7 +464,8 @@
       .filter((cells) => cells.length >= Math.max(verticalIdx, industryIdx, requestTypeIdx, consultantIdx) + 1)
       .map((cells) => ({
         vertical: resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx),
-        salesVertical: salesVerticalIdx >= 0 ? cleanVerticalValue(cells[salesVerticalIdx] || "", cells[verticalIdx] || "") : "(sales vertical missing)",
+        salesVertical: hasSalesVerticalSource ? cleanVerticalValue(cells[salesVerticalIdx] || "", cells[verticalIdx] || "") : "(sales vertical missing)",
+        salesVerticalSource: hasSalesVerticalSource,
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
         industrySubgroup: industrySubgroupIdx >= 0 ? cells[industrySubgroupIdx] || "(blank)" : "(industry subgroup column missing)",
         requestType: cells[requestTypeIdx] || "(blank)",
@@ -904,8 +910,23 @@
   }
 
   function monthCountForRows(rows) {
-    const months = new Set(rows.map((row) => row.month).filter((month) => month && !String(month).startsWith("(")));
-    return Math.max(months.size, 1);
+    const dates = rows.map((row) => row.dateValue).filter(Boolean).sort();
+    if (!dates.length) {
+      const months = new Set(rows.map((row) => row.month).filter((month) => month && !String(month).startsWith("(")));
+      return Math.max(months.size, 1);
+    }
+    const start = parseDateInputValue(dates[0]);
+    const datasetEnd = parseDateInputValue(dates[dates.length - 1]);
+    const today = new Date();
+    const end = datasetEnd && datasetEnd < today ? datasetEnd : today;
+    if (!start || !end) return 1;
+    return Math.max((end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1, 1);
+  }
+
+  function parseDateInputValue(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalizeText(value));
+    if (!match) return null;
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   }
 
   function monthlyVolumeLabel(volume, months) {
@@ -2282,6 +2303,7 @@
   }
 
   function isCrossStaffedRow(row) {
+    if (!row.salesVerticalSource) return false;
     const scIndustryGroup = industryGroupKey(row.vertical);
     const salesIndustryGroup = industryGroupKey(row.salesVertical);
     if (!scIndustryGroup || !salesIndustryGroup) return false;
@@ -2389,9 +2411,10 @@
   }
 
   function staffedScVolumeTable(summary, entries) {
+    const summaryMonths = monthCountForRows(summary.rows);
     const rows = entries.map(([name, volume]) => {
       const scRows = rowsForConsultant(summary, name);
-      const months = monthCountForRows(scRows);
+      const months = summaryMonths;
       const direct = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg("Direct")).length;
       const amo = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg("AMO")).length;
       const pipeline = sumRows(scRows, pipelineRevenue);
@@ -2437,7 +2460,7 @@
     );
     const totalClosed = totals.won + totals.lost;
     const totalWinRate = totalClosed ? totals.won / totalClosed : null;
-    const totalMonths = monthCountForRows(summary.rows);
+    const totalMonths = summaryMonths;
     return simpleTable(
       ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
       rows.map((row) => {
@@ -2503,13 +2526,13 @@
       <div class="scd-industry-grid">
         ${pieCard(summary, "Direct", "Direct sales team requests by Industry Group", "salesVertical", {
           filterKey: "salesVertical",
-          rows: rowsForSalesTeam(summary, "Direct"),
+          rows: rowsForSalesTeam(summary, "Direct").filter((row) => row.salesVerticalSource),
           extraFilters: { salesTeam: "Direct" },
           missing: "No Direct requests found."
         })}
         ${pieCard(summary, "AMO", "AMO sales team requests by Industry Group", "salesVertical", {
           filterKey: "salesVertical",
-          rows: rowsForSalesTeam(summary, "AMO"),
+          rows: rowsForSalesTeam(summary, "AMO").filter((row) => row.salesVerticalSource),
           extraFilters: { salesTeam: "AMO" },
           missing: "No AMO requests found."
         })}
@@ -2541,7 +2564,7 @@
   }
 
   function crossStaffingStats(summary, salesTeam) {
-    const teamRows = rowsForSalesTeam(summary, salesTeam);
+    const teamRows = rowsForSalesTeam(summary, salesTeam).filter((row) => row.salesVerticalSource);
     const outside = teamRows.filter(isCrossStaffedRow).length;
     const inside = teamRows.length - outside;
     return {
@@ -2579,7 +2602,7 @@
   }
 
   function hasSalesVerticalData(rows) {
-    return rows.some((row) => isKnownVertical(row.salesVertical));
+    return rows.some((row) => row.salesVerticalSource && isKnownVertical(row.salesVertical));
   }
 
   function mapEntriesForRows(rows, field) {
@@ -3164,13 +3187,14 @@
   }
 
   function staffedScTable(summary) {
+    const summaryMonths = monthCountForRows(summary.rows);
     return simpleTable(
       ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
       sortedEntries(summary.byConsultant).map(([name, volume]) => {
         const direct = salesTeamVolumeFor(summary, name, "Direct");
         const amo = salesTeamVolumeFor(summary, name, "AMO");
         const scRows = summary.rows.filter((row) => normalizeText(row.consultant) === normalizeText(name));
-        const months = monthCountForRows(scRows);
+        const months = summaryMonths;
         const pipeline = sumRows(scRows, pipelineRevenue);
         const closed = sumRows(scRows, closedRevenue);
         const revenue = sumRows(scRows, rowRevenue);
