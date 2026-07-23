@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.11.6
+// @version      2.11.7
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,9 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.11.6",
+    version: "2.11.7",
+    fiscalStartMonth: 6,
+    fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
       "SCM.PERISCOPE",
@@ -183,9 +185,8 @@
 
   function resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx) {
     const vertical = verticalIdx >= 0 ? cells[verticalIdx] || "" : "";
-    const salesVertical = salesVerticalIdx >= 0 ? cells[salesVerticalIdx] || "" : "";
     const companyIndustry = industryIdx >= 0 ? cells[industryIdx] || "" : "";
-    const cleaned = cleanVerticalValue(vertical, salesVertical);
+    const cleaned = cleanVerticalValue(vertical);
     if (isKnownVertical(cleaned)) return cleaned;
     return inferIndustryFamily(companyIndustry);
   }
@@ -910,17 +911,27 @@
   }
 
   function monthCountForRows(rows) {
-    const dates = rows.map((row) => row.dateValue).filter(Boolean).sort();
+    const today = new Date();
+    const fiscalStart = fiscalStartDate(today);
+    const dates = rows
+      .map((row) => parseDateInputValue(row.dateValue))
+      .filter((date) => date && date >= fiscalStart && date <= today)
+      .sort((a, b) => a - b);
     if (!dates.length) {
       const months = new Set(rows.map((row) => row.month).filter((month) => month && !String(month).startsWith("(")));
       return Math.max(months.size, 1);
     }
-    const start = parseDateInputValue(dates[0]);
-    const datasetEnd = parseDateInputValue(dates[dates.length - 1]);
-    const today = new Date();
+    const start = dates[0] > fiscalStart ? dates[0] : fiscalStart;
+    const datasetEnd = dates[dates.length - 1];
     const end = datasetEnd && datasetEnd < today ? datasetEnd : today;
     if (!start || !end) return 1;
     return Math.max((end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1, 1);
+  }
+
+  function fiscalStartDate(referenceDate) {
+    const monthIdx = CONFIG.fiscalStartMonth - 1;
+    const year = referenceDate.getMonth() >= monthIdx ? referenceDate.getFullYear() : referenceDate.getFullYear() - 1;
+    return new Date(year, monthIdx, CONFIG.fiscalStartDay);
   }
 
   function parseDateInputValue(value) {
