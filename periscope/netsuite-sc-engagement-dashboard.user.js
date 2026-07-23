@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.10.8
+// @version      2.11.0
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.10.8",
+    version: "2.11.0",
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
       "SCM.PERISCOPE",
@@ -37,15 +37,20 @@
       "Products",
       "Consumer Services",
       "Business Services",
+      "Software",
+      "High Tech",
+      "Health & Hospitality",
       "Health Hospitality",
       "Health  Hospitality",
+      "Construction & Energy",
       "Construction Energy",
       "Construction  Energy",
-      "Software",
-      "High Tech"
+      "PBCS",
+      "TCOE",
+      "Wholesale/Distribution"
     ],
     columnAliases: {
-      vertical: ["SC Vertical", "Vertical", "Industry Family"],
+      vertical: ["SC Vertical", "Industry Family", "Vertical"],
       salesVertical: ["Sales Vertical", "Industry Group", "Sales Industry Group"],
       industry: ["Company Industry", "Customer Industry", "Industry"],
       industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Sub Industry", "Sub-Industry", "Company Industry Subgroup", "Company Industry Sub Group"],
@@ -126,7 +131,63 @@
   }
 
   function displayVertical(value) {
-    return normalizeText(value).replace("Health Hospitality", "Health Hospitality").replace("Construction Energy", "Construction Energy");
+    return normalizeText(value)
+      .replace(/^Health\s+Hospitality$/i, "Health & Hospitality")
+      .replace(/^Construction\s+Energy$/i, "Construction & Energy");
+  }
+
+  function verticalKey(value) {
+    return normalizeText(displayVertical(value)).toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  function isKnownVertical(value) {
+    const key = verticalKey(value);
+    if (!key) return false;
+    return CONFIG.preferredVerticalOrder.some((vertical) => verticalKey(vertical) === key);
+  }
+
+  function cleanVerticalValue(primaryValue, fallbackValue = "") {
+    const primary = displayVertical(primaryValue);
+    if (isKnownVertical(primary)) return primary;
+    const fallback = displayVertical(fallbackValue);
+    if (isKnownVertical(fallback)) return fallback;
+    return "(vertical unmapped)";
+  }
+
+  function inferIndustryFamily(companyIndustry) {
+    const key = normalizeText(companyIndustry).toLowerCase().replace(/&/g, "and");
+    if (!key || key.startsWith("(")) return "(vertical unmapped)";
+
+    const familyMap = new Map([
+      ["software", "Software"],
+      ["consulting", "Business Services"],
+      ["advertising, media and publishing", "Business Services"],
+      ["advertising media and publishing", "Business Services"],
+      ["transportation", "Business Services"],
+      ["business services", "Business Services"],
+      ["financial services", "Consumer Services"],
+      ["nonprofits and organizations", "Consumer Services"],
+      ["consumer services", "Consumer Services"],
+      ["consumer goods", "Products"],
+      ["industrial and equipment", "Products"],
+      ["food and beverage", "Products"],
+      ["health", "Health & Hospitality"],
+      ["life sciences", "Health & Hospitality"],
+      ["hospitality", "Health & Hospitality"],
+      ["public sector", "Health & Hospitality"],
+      ["construction and energy", "Construction & Energy"]
+    ]);
+
+    return familyMap.get(key) || "(vertical unmapped)";
+  }
+
+  function resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx) {
+    const vertical = verticalIdx >= 0 ? cells[verticalIdx] || "" : "";
+    const salesVertical = salesVerticalIdx >= 0 ? cells[salesVerticalIdx] || "" : "";
+    const companyIndustry = industryIdx >= 0 ? cells[industryIdx] || "" : "";
+    const cleaned = cleanVerticalValue(vertical, salesVertical);
+    if (isKnownVertical(cleaned)) return cleaned;
+    return inferIndustryFamily(companyIndustry);
   }
 
   function isValueManagementText(value) {
@@ -290,8 +351,11 @@
   }
 
   function hasCoreHeaders(headers) {
+    const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
+    const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry, [industrySubgroupIdx]);
+    const hasVerticalSource = findColumnIndex(headers, CONFIG.columnAliases.vertical) >= 0 || industryIdx >= 0;
     return (
-      findColumnIndex(headers, CONFIG.columnAliases.vertical) >= 0 &&
+      hasVerticalSource &&
       findColumnIndex(headers, CONFIG.columnAliases.requestType) >= 0 &&
       findColumnIndex(headers, CONFIG.columnAliases.consultant) >= 0
     );
@@ -369,15 +433,15 @@
     const scManagerNotes2Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes2);
     const scManagerNotes3Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes3);
 
-    if (verticalIdx < 0 || requestTypeIdx < 0 || consultantIdx < 0) {
-      return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical, Request Type, Solution Consultant." };
+    if ((verticalIdx < 0 && industryIdx < 0) || requestTypeIdx < 0 || consultantIdx < 0) {
+      return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical or Company Industry, Request Type, Solution Consultant." };
     }
 
     const rows = cellsRows
-      .filter((cells) => cells.length >= Math.max(verticalIdx, requestTypeIdx, consultantIdx) + 1)
+      .filter((cells) => cells.length >= Math.max(verticalIdx, industryIdx, requestTypeIdx, consultantIdx) + 1)
       .map((cells) => ({
-        vertical: displayVertical(cells[verticalIdx] || "(blank)"),
-        salesVertical: salesVerticalIdx >= 0 ? displayVertical(cells[salesVerticalIdx] || "(blank)") : displayVertical(cells[verticalIdx] || "(blank)"),
+        vertical: resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx),
+        salesVertical: salesVerticalIdx >= 0 ? displayVertical(cells[salesVerticalIdx] || "(blank)") : cleanVerticalValue(cells[verticalIdx] || ""),
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
         industrySubgroup: industrySubgroupIdx >= 0 ? cells[industrySubgroupIdx] || "(blank)" : "(industry subgroup column missing)",
         requestType: cells[requestTypeIdx] || "(blank)",
@@ -628,12 +692,14 @@
     });
 
     const sortedTeams = Array.from(teams.values()).sort((a, b) => teamOrder(a.name) - teamOrder(b.name) || b.total - a.total);
-    const sortedVerticals = Array.from(verticals.values()).sort((a, b) => {
-      const aOrder = orderIndex(a.name);
-      const bOrder = orderIndex(b.name);
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return b.total - a.total;
-    });
+    const sortedVerticals = Array.from(verticals.values())
+      .filter((vertical) => isKnownVertical(vertical.name))
+      .sort((a, b) => {
+        const aOrder = orderIndex(a.name);
+        const bOrder = orderIndex(b.name);
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return b.total - a.total;
+      });
 
     return { org, teams: sortedTeams, verticals: sortedVerticals };
   }
@@ -1635,7 +1701,7 @@
           Opp Number / Name
           <input type="search" placeholder="Search opportunity" data-scd-deal-lookup-filter="opportunity" value="${escapeHtml(filters.opportunity)}">
         </label>
-        ${filterSelectWithAttr("Vertical", "vertical", uniqueSorted(rows, "vertical"), filters.vertical, "data-scd-deal-lookup-filter")}
+        ${filterSelectWithAttr("Vertical", "vertical", knownVerticalOptions(rows), filters.vertical, "data-scd-deal-lookup-filter")}
         ${filterSelectWithAttr("Forecast Grade", "forecastGrade", uniqueSorted(rows, "forecastGrade"), filters.forecastGrade, "data-scd-deal-lookup-filter")}
         <label>
           Begin
@@ -2768,6 +2834,14 @@
     return uniqueSortedValues(rows.map((row) => normalizeText(row[field])));
   }
 
+  function knownVerticalOptions(rows) {
+    const present = new Set(rows.map((row) => row.vertical).filter(isKnownVertical).map(displayVertical));
+    return CONFIG.preferredVerticalOrder
+      .map(displayVertical)
+      .filter((vertical, index, all) => all.indexOf(vertical) === index)
+      .filter((vertical) => present.has(vertical));
+  }
+
   function uniqueSortedValues(values) {
     return Array.from(new Set(values.filter((value) => value && !value.startsWith("(")))).sort((a, b) => a.localeCompare(b));
   }
@@ -3180,7 +3254,7 @@
 
     const candidate = findSavedSearchTable();
     if (!candidate) {
-      showWarning("No complete visible results table was found with SC Vertical/Vertical, Request Type, and Solution Consultant columns.");
+      showWarning("No complete visible results table was found with SC Vertical/Vertical or Company Industry, Request Type, and Solution Consultant columns.");
       return;
     }
 
