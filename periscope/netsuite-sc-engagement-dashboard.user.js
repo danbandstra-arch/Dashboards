@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.11.9
+// @version      2.12.0
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.11.9",
+    version: "2.12.0",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
@@ -2328,7 +2328,7 @@
   function isCrossStaffedRow(row) {
     if (!row.salesVerticalSource) return false;
     const scIndustryGroup = industryGroupKey(row.vertical);
-    const salesIndustryGroup = industryGroupKey(isKnownVertical(row.salesVertical) ? row.salesVertical : salesVerticalDisplay(row));
+    const salesIndustryGroup = industryGroupKey(knownSalesVertical(row));
     if (!scIndustryGroup || !salesIndustryGroup) return false;
     return scIndustryGroup !== salesIndustryGroup;
   }
@@ -2547,19 +2547,21 @@
         </div>
       `;
     }
+    const directRows = crossStaffedRowsForSalesTeam(summary, "Direct");
+    const amoRows = crossStaffedRowsForSalesTeam(summary, "AMO");
     return `
       <div class="scd-industry-grid">
-        ${pieCard(summary, "Direct", "Direct sales team requests by Industry Group", "salesVertical", {
+        ${pieCard(summary, "Direct", "Cross-staffed Direct requests by Sales Vertical", "salesVertical", {
           filterKey: "salesVertical",
-          rows: rowsForSalesTeam(summary, "Direct").filter((row) => row.salesVerticalSource),
+          rows: directRows,
           extraFilters: { salesTeam: "Direct" },
-          missing: "No Direct requests found."
+          missing: "No cross-staffed Direct requests found."
         })}
-        ${pieCard(summary, "AMO", "AMO sales team requests by Industry Group", "salesVertical", {
+        ${pieCard(summary, "AMO", "Cross-staffed AMO requests by Sales Vertical", "salesVertical", {
           filterKey: "salesVertical",
-          rows: rowsForSalesTeam(summary, "AMO").filter((row) => row.salesVerticalSource),
+          rows: amoRows,
           extraFilters: { salesTeam: "AMO" },
-          missing: "No AMO requests found."
+          missing: "No cross-staffed AMO requests found."
         })}
       </div>
       ${crossStaffingExplanation(summary)}
@@ -2577,28 +2579,25 @@
     return `
       <div class="scd-chart-note">
         <strong>How to read this:</strong>
-        These charts show which Industry Groups the selected team is supporting by Sales Team. ${crossStaffingSentence(context, direct)}
+        These charts show cross-staffed requests only: work owned by this SC team that came from another Sales Vertical. ${crossStaffingSentence(context, direct)}
         ${crossStaffingSentence(context, amo)}
       </div>
     `;
   }
 
   function crossStaffingSentence(context, stats) {
-    if (!stats.total) return `${stats.salesTeam} has no requests in this view.`;
-    return `${context} is supporting ${formatNumber(stats.total)} ${stats.salesTeam} requests; ${stats.outsidePct}% are outside its own Industry Group and ${stats.insidePct}% are inside.`;
+    if (!stats.total) return `${stats.salesTeam} has no requests with a usable Sales Vertical in this view.`;
+    return `${context} has ${formatNumber(stats.cross)} cross-staffed ${stats.salesTeam} requests from other Sales Verticals (${stats.crossPct}% of ${formatNumber(stats.total)} ${stats.salesTeam} requests with Sales Vertical).`;
   }
 
   function crossStaffingStats(summary, salesTeam) {
-    const teamRows = rowsForSalesTeam(summary, salesTeam).filter((row) => row.salesVerticalSource);
-    const outside = teamRows.filter(isCrossStaffedRow).length;
-    const inside = teamRows.length - outside;
+    const teamRows = rowsForSalesTeam(summary, salesTeam).filter((row) => knownSalesVertical(row));
+    const cross = teamRows.filter(isCrossStaffedRow).length;
     return {
       salesTeam,
       total: teamRows.length,
-      inside,
-      outside,
-      insidePct: teamRows.length ? Math.round((inside / teamRows.length) * 100) : 0,
-      outsidePct: teamRows.length ? Math.round((outside / teamRows.length) * 100) : 0
+      cross,
+      crossPct: teamRows.length ? Math.round((cross / teamRows.length) * 100) : 0
     };
   }
 
@@ -2627,7 +2626,7 @@
   }
 
   function hasSalesVerticalData(rows) {
-    return rows.some((row) => row.salesVerticalSource && salesVerticalDisplay(row));
+    return rows.some((row) => knownSalesVertical(row));
   }
 
   function salesVerticalDisplay(row) {
@@ -2637,10 +2636,21 @@
     return isKnownVertical(row.salesVertical) ? row.salesVertical : "";
   }
 
+  function knownSalesVertical(row) {
+    if (!row.salesVerticalSource) return "";
+    if (isKnownVertical(row.salesVertical)) return displayVertical(row.salesVertical);
+    const raw = displayVertical(row.salesVerticalRaw);
+    return isKnownVertical(raw) ? raw : "";
+  }
+
+  function crossStaffedRowsForSalesTeam(summary, salesTeam) {
+    return rowsForSalesTeam(summary, salesTeam).filter(isCrossStaffedRow);
+  }
+
   function mapEntriesForRows(rows, field) {
     return Array.from(
       rows.reduce((map, row) => {
-        const value = field === "salesVertical" ? salesVerticalDisplay(row) || "(blank)" : row[field] || "(blank)";
+        const value = field === "salesVertical" ? knownSalesVertical(row) || "(blank)" : row[field] || "(blank)";
         if (!String(value).startsWith("(")) incrementMap(map, value);
         return map;
       }, new Map()).entries()
