@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.11.1
+// @version      2.11.2
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.11.1",
+    version: "2.11.2",
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
       "SCM.PERISCOPE",
@@ -194,8 +194,18 @@
     return /value\s*management/i.test(normalizeText(value));
   }
 
+  function isTcoeText(value) {
+    return /(^|\s)(tcoe|technology\s*coe|technology\s+center\s+of\s+excellence)(\s|$)/i.test(normalizeText(value));
+  }
+
+  function isScaiText(value) {
+    return /(^|\s)(scai|scai\s*support|ai\s*support)(\s|$)/i.test(normalizeText(value));
+  }
+
   function deriveTeam(oml6Value, requestType = "", deliverable = "") {
     if (isValueManagementText(requestType) || isValueManagementText(deliverable)) return "Team Value";
+    if (isTcoeText(requestType) || isTcoeText(deliverable)) return "Team TCOE";
+    if (isScaiText(requestType) || isScaiText(deliverable)) return "Team SCAI";
     const value = normalizeText(oml6Value).toLowerCase();
     if (value.includes("bandstra")) return "Team Nautiq";
     if (value.includes("ransom")) return "Team Terra";
@@ -204,6 +214,14 @@
 
   function isValueManagementRow(row) {
     return row.team === "Team Value" || isValueManagementText(row.requestType) || isValueManagementText(row.deliverable);
+  }
+
+  function isTcoeRow(row) {
+    return row.team === "Team TCOE" || isTcoeText(row.requestType) || isTcoeText(row.deliverable);
+  }
+
+  function isScaiRow(row) {
+    return row.team === "Team SCAI" || isScaiText(row.requestType) || isScaiText(row.deliverable);
   }
 
   function isGravityText(value) {
@@ -705,7 +723,7 @@
   }
 
   function teamOrder(teamName) {
-    const order = ["Team Terra", "Team Nautiq", "Team Value"];
+    const order = ["Team Terra", "Team Nautiq", "Team Value", "Team TCOE", "Team SCAI"];
     const idx = order.indexOf(teamName);
     return idx === -1 ? 999 : idx;
   }
@@ -788,6 +806,8 @@
 
   function requestTypeLabel(row) {
     if (isValueManagementRow(row)) return "Value Management";
+    if (isTcoeRow(row)) return "Technology COE";
+    if (isScaiRow(row)) return "SCAI Support";
     const salesTeam = normalizeOrg(row.salesTeam || row.requestType);
     if (industryGroupKey(row.salesVertical) === "channel") {
       if (salesTeam === "AMO") return "Channel AMO";
@@ -1571,6 +1591,10 @@
               </div>
             </div>
             <div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Legacy Org Staffing Blend</div>
+              ${legacyBlendTable(active)}
+            </div>
+            <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Deal Analysis by Deliverable</div>
               ${dealAnalysisTable(active)}
             </div>
@@ -2184,6 +2208,75 @@
         { display: formatNumber(shownDirect), value: shownDirect },
         { display: formatNumber(shownCross), value: shownCross },
         { display: shownVolume ? `${((shownCross / shownVolume) * 100).toFixed(0)}%` : "0%", value: shownVolume ? shownCross / shownVolume : 0 }
+      ]
+    );
+  }
+
+  function legacyBlendTable(summary) {
+    const months = monthCountForRows(summary.rows);
+    const rows = Array.from(summary.byConsultant.keys())
+      .map((name) => {
+        const scRows = rowsForConsultant(summary, name);
+        const legacy = normalizeOrg(summary.legacyOrgByConsultant.get(name) || scRows.find((row) => row.legacyOrg)?.legacyOrg || "");
+        const direct = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "Direct").length;
+        const amo = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO").length;
+        if (legacy !== "Direct" && legacy !== "AMO") return null;
+        const nativeVolume = legacy === "Direct" ? direct : amo;
+        const blendVolume = legacy === "Direct" ? amo : direct;
+        return {
+          name,
+          legacy,
+          nativeLabel: legacy === "Direct" ? "Direct Deals" : "AMO Deals",
+          blendLabel: legacy === "Direct" ? "AMO Blend" : "Direct Blend",
+          nativeVolume,
+          blendVolume,
+          total: scRows.length,
+          direct,
+          amo
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.blendVolume - a.blendVolume || b.nativeVolume - a.nativeVolume || a.name.localeCompare(b.name));
+
+    if (!rows.length) return `<div class="scd-warning">No Legacy Direct or Legacy AMO SCs found in this view.</div>`;
+
+    const totals = rows.reduce(
+      (sum, row) => {
+        sum.total += row.total;
+        sum.nativeVolume += row.nativeVolume;
+        sum.blendVolume += row.blendVolume;
+        sum.direct += row.direct;
+        sum.amo += row.amo;
+        return sum;
+      },
+      { total: 0, nativeVolume: 0, blendVolume: 0, direct: 0, amo: 0 }
+    );
+
+    return simpleTable(
+      ["SC", "Legacy Org", "Total Volume", "Direct", "AMO", "Native Org Volume", "Native / Mo", "BLEND Volume", "BLEND / Mo", "% Blend"],
+      rows.map((row) => [
+        { display: scLabel(summary, row.name), value: row.name, html: true, drill: { consultant: row.name } },
+        { display: row.legacy, value: row.legacy, drill: { legacyOrg: row.legacy } },
+        { display: formatNumber(row.total), value: row.total, heat: true, drill: { consultant: row.name } },
+        { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
+        { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
+        { display: formatNumber(row.nativeVolume), value: row.nativeVolume, heat: true, drill: { consultant: row.name, salesTeam: row.legacy } },
+        { display: monthlyVolumeLabel(row.nativeVolume, months), value: row.nativeVolume / months, heat: true, drill: { consultant: row.name, salesTeam: row.legacy } },
+        { display: formatNumber(row.blendVolume), value: row.blendVolume, heat: true, drill: { consultant: row.name, salesTeam: row.legacy === "Direct" ? "AMO" : "Direct" } },
+        { display: monthlyVolumeLabel(row.blendVolume, months), value: row.blendVolume / months, heat: true, drill: { consultant: row.name, salesTeam: row.legacy === "Direct" ? "AMO" : "Direct" } },
+        { display: row.total ? `${((row.blendVolume / row.total) * 100).toFixed(0)}%` : "0%", value: row.total ? row.blendVolume / row.total : 0, heat: true, drill: { consultant: row.name } }
+      ]),
+      [
+        { display: "Total", value: "Total" },
+        { display: "-", value: "" },
+        { display: formatNumber(totals.total), value: totals.total },
+        { display: formatNumber(totals.direct), value: totals.direct },
+        { display: formatNumber(totals.amo), value: totals.amo },
+        { display: formatNumber(totals.nativeVolume), value: totals.nativeVolume },
+        { display: monthlyVolumeLabel(totals.nativeVolume, months), value: totals.nativeVolume / months },
+        { display: formatNumber(totals.blendVolume), value: totals.blendVolume },
+        { display: monthlyVolumeLabel(totals.blendVolume, months), value: totals.blendVolume / months },
+        { display: totals.total ? `${((totals.blendVolume / totals.total) * 100).toFixed(0)}%` : "0%", value: totals.total ? totals.blendVolume / totals.total : 0 }
       ]
     );
   }
