@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.11.0
+// @version      2.11.1
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.11.0",
+    version: "2.11.1",
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
       "SCM.PERISCOPE",
@@ -883,6 +883,15 @@
       .sort((a, b) => String(a).localeCompare(String(b)));
   }
 
+  function monthCountForRows(rows) {
+    const months = new Set(rows.map((row) => row.month).filter((month) => month && !String(month).startsWith("(")));
+    return Math.max(months.size, 1);
+  }
+
+  function monthlyVolumeLabel(volume, months) {
+    return `${formatNumber(volume / Math.max(months, 1), 1)} / mo`;
+  }
+
   function installStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
@@ -1479,6 +1488,7 @@
       const directType = requestTypes.find((type) => /direct/i.test(type));
       const amo = amoType ? metricFor(active, amoType) : { volume: 0, unique: 0, avg: 0 };
       const direct = directType ? metricFor(active, directType) : { volume: 0, unique: 0, avg: 0 };
+      const activeMonthCount = monthCountForRows(active.rows);
       const activeTeams = teamSummariesFromRows(active.rows);
       const activeVerticals = verticalSummariesFromRows(active.rows);
       const maxVerticalTotal = Math.max(...activeVerticals.map((vertical) => vertical.total), 1);
@@ -1518,8 +1528,8 @@
             <div class="scd-kpis">
               ${kpi("Total Requests", active.total)}
               ${kpi("Unique SCs Staffed", active.consultants.size)}
-              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs`)}
-              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs`)}
+              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs / ${monthlyVolumeLabel(amo.volume, activeMonthCount)}`)}
+              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs / ${monthlyVolumeLabel(direct.volume, activeMonthCount)}`)}
             </div>
             ${isAllVerticals ? `<div class="scd-grid">
               <div class="scd-panel">
@@ -2288,6 +2298,7 @@
   function staffedScVolumeTable(summary, entries) {
     const rows = entries.map(([name, volume]) => {
       const scRows = rowsForConsultant(summary, name);
+      const months = monthCountForRows(scRows);
       const direct = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg("Direct")).length;
       const amo = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg("AMO")).length;
       const pipeline = sumRows(scRows, pipelineRevenue);
@@ -2302,6 +2313,7 @@
       return {
         name,
         volume,
+        months,
         direct,
         amo,
         pipeline,
@@ -2332,14 +2344,18 @@
     );
     const totalClosed = totals.won + totals.lost;
     const totalWinRate = totalClosed ? totals.won / totalClosed : null;
+    const totalMonths = monthCountForRows(summary.rows);
     return simpleTable(
-      ["SC", "Volume", "Direct Volume", "AMO Volume", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
+      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
       rows.map((row) => {
         return [
           { display: scLabel(summary, row.name), value: row.name, html: true, drill: { consultant: row.name } },
           { display: formatNumber(row.volume), value: row.volume, heat: true, drill: { consultant: row.name } },
+          { display: monthlyVolumeLabel(row.volume, row.months), value: row.volume / row.months, heat: true, drill: { consultant: row.name } },
           { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
+          { display: monthlyVolumeLabel(row.direct, row.months), value: row.direct / row.months, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
           { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
+          { display: monthlyVolumeLabel(row.amo, row.months), value: row.amo / row.months, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
           { display: formatCurrency(row.pipeline), value: row.pipeline, heat: true, drill: { consultant: row.name, oppBucket: "Open" } },
           { display: formatCurrency(row.closedRevenueTotal), value: row.closedRevenueTotal, heat: true, drill: { consultant: row.name, oppBucket: "Won" } },
           { display: formatCurrency(row.revenue), value: row.revenue, heat: true, drill: { consultant: row.name } },
@@ -2354,8 +2370,11 @@
       [
         { display: "Total", value: "Total" },
         { display: formatNumber(totals.volume), value: totals.volume },
+        { display: monthlyVolumeLabel(totals.volume, totalMonths), value: totals.volume / totalMonths },
         { display: formatNumber(totals.direct), value: totals.direct },
+        { display: monthlyVolumeLabel(totals.direct, totalMonths), value: totals.direct / totalMonths },
         { display: formatNumber(totals.amo), value: totals.amo },
+        { display: monthlyVolumeLabel(totals.amo, totalMonths), value: totals.amo / totalMonths },
         { display: formatCurrency(totals.pipeline), value: totals.pipeline },
         { display: formatCurrency(totals.closedRevenueTotal), value: totals.closedRevenueTotal },
         { display: formatCurrency(totals.revenue), value: totals.revenue },
@@ -2681,6 +2700,7 @@
       const directType = requestTypes.find((type) => /direct/i.test(type));
       const amo = amoType ? metricFor(summary, amoType) : { volume: 0, unique: 0, avg: 0 };
       const direct = directType ? metricFor(summary, directType) : { volume: 0, unique: 0, avg: 0 };
+      const drillMonthCount = monthCountForRows(filteredRows);
       const totalRevenue = sumRows(filteredRows, rowRevenue);
       const totalPipelineRevenue = sumRows(filteredRows, pipelineRevenue);
       const totalClosedRevenue = sumRows(filteredRows, closedRevenue);
@@ -2704,8 +2724,8 @@
             <div class="scd-kpis">
               ${kpi("Requests", filteredRows.length)}
               ${kpi("Unique SCs", summary.consultants.size)}
-              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs`)}
-              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs`)}
+              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs / ${monthlyVolumeLabel(amo.volume, drillMonthCount)}`)}
+              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs / ${monthlyVolumeLabel(direct.volume, drillMonthCount)}`)}
               ${kpi("Pipeline Rev", formatCurrency(totalPipelineRevenue))}
               ${kpi("Closed Rev", formatCurrency(totalClosedRevenue))}
               ${kpi("Revenue", formatCurrency(totalRevenue))}
@@ -3041,11 +3061,12 @@
 
   function staffedScTable(summary) {
     return simpleTable(
-      ["SC", "Volume", "Direct Volume", "AMO Volume", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
+      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
       sortedEntries(summary.byConsultant).map(([name, volume]) => {
         const direct = salesTeamVolumeFor(summary, name, "Direct");
         const amo = salesTeamVolumeFor(summary, name, "AMO");
         const scRows = summary.rows.filter((row) => normalizeText(row.consultant) === normalizeText(name));
+        const months = monthCountForRows(scRows);
         const pipeline = sumRows(scRows, pipelineRevenue);
         const closed = sumRows(scRows, closedRevenue);
         const revenue = sumRows(scRows, rowRevenue);
@@ -3053,8 +3074,11 @@
         return [
           { display: scLabel(summary, name), value: name, html: true, drill: { consultant: name } },
           { display: formatNumber(volume), value: volume, heat: true, drill: { consultant: name } },
+          { display: monthlyVolumeLabel(volume, months), value: volume / months, heat: true, drill: { consultant: name } },
           { display: formatNumber(direct), value: direct, heat: true, drill: { consultant: name, salesTeam: "Direct" } },
+          { display: monthlyVolumeLabel(direct, months), value: direct / months, heat: true, drill: { consultant: name, salesTeam: "Direct" } },
           { display: formatNumber(amo), value: amo, heat: true, drill: { consultant: name, salesTeam: "AMO" } },
+          { display: monthlyVolumeLabel(amo, months), value: amo / months, heat: true, drill: { consultant: name, salesTeam: "AMO" } },
           { display: formatCurrency(pipeline), value: pipeline, heat: true, drill: { consultant: name, oppBucket: "Open" } },
           { display: formatCurrency(closed), value: closed, heat: true, drill: { consultant: name, oppBucket: "Won" } },
           { display: formatCurrency(revenue), value: revenue, heat: true, drill: { consultant: name } },
