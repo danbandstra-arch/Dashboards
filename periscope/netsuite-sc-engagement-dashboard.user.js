@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.11.7
+// @version      2.11.9
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.11.7",
+    version: "2.11.9",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
@@ -466,6 +466,7 @@
       .map((cells) => ({
         vertical: resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx),
         salesVertical: hasSalesVerticalSource ? cleanVerticalValue(cells[salesVerticalIdx] || "", cells[verticalIdx] || "") : "(sales vertical missing)",
+        salesVerticalRaw: hasSalesVerticalSource ? cells[salesVerticalIdx] || "" : "",
         salesVerticalSource: hasSalesVerticalSource,
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
         industrySubgroup: industrySubgroupIdx >= 0 ? cells[industrySubgroupIdx] || "(blank)" : "(industry subgroup column missing)",
@@ -942,6 +943,15 @@
 
   function monthlyVolumeLabel(volume, months) {
     return `${formatNumber(volume / Math.max(months, 1), 1)} / mo`;
+  }
+
+  function averageMonthlyValue(rows, getter) {
+    if (!rows.length) return 0;
+    return rows.reduce((sum, row) => sum + getter(row), 0) / rows.length;
+  }
+
+  function monthlyAverageLabel(value) {
+    return `${formatNumber(value, 1)} / mo`;
   }
 
   function installStyles() {
@@ -2283,6 +2293,8 @@
       },
       { total: 0, nativeVolume: 0, blendVolume: 0, direct: 0, amo: 0 }
     );
+    const avgNativePerMonth = averageMonthlyValue(rows, (row) => row.nativeVolume / months);
+    const avgBlendPerMonth = averageMonthlyValue(rows, (row) => row.blendVolume / months);
 
     return simpleTable(
       ["SC", "Legacy Org", "Total Volume", "Direct", "AMO", "Native Org Volume", "Native / Mo", "BLEND Volume", "BLEND / Mo", "% Blend"],
@@ -2305,9 +2317,9 @@
         { display: formatNumber(totals.direct), value: totals.direct },
         { display: formatNumber(totals.amo), value: totals.amo },
         { display: formatNumber(totals.nativeVolume), value: totals.nativeVolume },
-        { display: monthlyVolumeLabel(totals.nativeVolume, months), value: totals.nativeVolume / months },
+        { display: monthlyAverageLabel(avgNativePerMonth), value: avgNativePerMonth },
         { display: formatNumber(totals.blendVolume), value: totals.blendVolume },
-        { display: monthlyVolumeLabel(totals.blendVolume, months), value: totals.blendVolume / months },
+        { display: monthlyAverageLabel(avgBlendPerMonth), value: avgBlendPerMonth },
         { display: totals.total ? `${((totals.blendVolume / totals.total) * 100).toFixed(0)}%` : "0%", value: totals.total ? totals.blendVolume / totals.total : 0 }
       ]
     );
@@ -2316,7 +2328,7 @@
   function isCrossStaffedRow(row) {
     if (!row.salesVerticalSource) return false;
     const scIndustryGroup = industryGroupKey(row.vertical);
-    const salesIndustryGroup = industryGroupKey(row.salesVertical);
+    const salesIndustryGroup = industryGroupKey(isKnownVertical(row.salesVertical) ? row.salesVertical : salesVerticalDisplay(row));
     if (!scIndustryGroup || !salesIndustryGroup) return false;
     return scIndustryGroup !== salesIndustryGroup;
   }
@@ -2471,7 +2483,9 @@
     );
     const totalClosed = totals.won + totals.lost;
     const totalWinRate = totalClosed ? totals.won / totalClosed : null;
-    const totalMonths = summaryMonths;
+    const avgVolumePerMonth = averageMonthlyValue(rows, (row) => row.volume / row.months);
+    const avgDirectPerMonth = averageMonthlyValue(rows, (row) => row.direct / row.months);
+    const avgAmoPerMonth = averageMonthlyValue(rows, (row) => row.amo / row.months);
     return simpleTable(
       ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
       rows.map((row) => {
@@ -2497,11 +2511,11 @@
       [
         { display: "Total", value: "Total" },
         { display: formatNumber(totals.volume), value: totals.volume },
-        { display: monthlyVolumeLabel(totals.volume, totalMonths), value: totals.volume / totalMonths },
+        { display: monthlyAverageLabel(avgVolumePerMonth), value: avgVolumePerMonth },
         { display: formatNumber(totals.direct), value: totals.direct },
-        { display: monthlyVolumeLabel(totals.direct, totalMonths), value: totals.direct / totalMonths },
+        { display: monthlyAverageLabel(avgDirectPerMonth), value: avgDirectPerMonth },
         { display: formatNumber(totals.amo), value: totals.amo },
-        { display: monthlyVolumeLabel(totals.amo, totalMonths), value: totals.amo / totalMonths },
+        { display: monthlyAverageLabel(avgAmoPerMonth), value: avgAmoPerMonth },
         { display: formatCurrency(totals.pipeline), value: totals.pipeline },
         { display: formatCurrency(totals.closedRevenueTotal), value: totals.closedRevenueTotal },
         { display: formatCurrency(totals.revenue), value: totals.revenue },
@@ -2613,13 +2627,20 @@
   }
 
   function hasSalesVerticalData(rows) {
-    return rows.some((row) => row.salesVerticalSource && isKnownVertical(row.salesVertical));
+    return rows.some((row) => row.salesVerticalSource && salesVerticalDisplay(row));
+  }
+
+  function salesVerticalDisplay(row) {
+    if (!row.salesVerticalSource) return "";
+    const raw = normalizeText(row.salesVerticalRaw);
+    if (raw) return displayVertical(raw);
+    return isKnownVertical(row.salesVertical) ? row.salesVertical : "";
   }
 
   function mapEntriesForRows(rows, field) {
     return Array.from(
       rows.reduce((map, row) => {
-        const value = row[field] || "(blank)";
+        const value = field === "salesVertical" ? salesVerticalDisplay(row) || "(blank)" : row[field] || "(blank)";
         if (!String(value).startsWith("(")) incrementMap(map, value);
         return map;
       }, new Map()).entries()
