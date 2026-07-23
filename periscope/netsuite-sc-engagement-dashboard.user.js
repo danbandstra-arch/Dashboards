@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.10.4
+// @version      2.10.5
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -256,7 +256,7 @@
         const score = scoreHeaders(headers);
         return { table, headers, score };
       })
-      .filter((candidate) => candidate.score >= 2)
+      .filter((candidate) => hasCoreHeaders(candidate.headers))
       .sort((a, b) => b.score - a.score);
 
     return candidates[0] || null;
@@ -281,6 +281,14 @@
       if (aliases.some((alias) => headerSet.has(headerKey(alias)))) score += 1;
     });
     return score;
+  }
+
+  function hasCoreHeaders(headers) {
+    return (
+      findColumnIndex(headers, CONFIG.columnAliases.vertical) >= 0 &&
+      findColumnIndex(headers, CONFIG.columnAliases.requestType) >= 0 &&
+      findColumnIndex(headers, CONFIG.columnAliases.consultant) >= 0
+    );
   }
 
   function findColumnIndex(headers, aliases, excludedIndexes = []) {
@@ -463,7 +471,7 @@
 
   function readRowsFromCsv(text) {
     const csvRows = parseCsv(text).map((row) => row.map(normalizeText));
-    const headerIndex = csvRows.findIndex((row) => scoreHeaders(row) >= 2);
+    const headerIndex = csvRows.findIndex((row) => hasCoreHeaders(row));
     if (headerIndex === -1) {
       return { rows: [], error: "CSV export downloaded, but required headers were not found." };
     }
@@ -478,7 +486,7 @@
       const matrix = Array.from(table.querySelectorAll("tr")).map((tr) =>
         Array.from(tr.children).map((cell) => normalizeText(cell.textContent))
       );
-      const headerIndex = matrix.findIndex((row) => scoreHeaders(row) >= 2);
+      const headerIndex = matrix.findIndex((row) => hasCoreHeaders(row));
       if (headerIndex !== -1) {
         return rowsFromCells(matrix.slice(headerIndex + 1), matrix[headerIndex]);
       }
@@ -504,7 +512,7 @@
       });
       return output;
     });
-    const headerIndex = matrix.findIndex((row) => scoreHeaders(row) >= 2);
+    const headerIndex = matrix.findIndex((row) => hasCoreHeaders(row));
     if (headerIndex === -1) {
       return { rows: [], error: "Spreadsheet XML export downloaded, but required headers were not found." };
     }
@@ -3071,10 +3079,10 @@
         </div>
         <div class="scd-body">
           <div class="scd-warning">
-            <strong>Dashboard data was not found on this page.</strong><br>
+            <strong>Load the NetSuite export to build the dashboard.</strong><br>
             ${escapeHtml(message)}
             <div class="scd-muted" style="margin-top:8px">
-              This usually means NetSuite did not expose the result table to the script, the page is still loading, or this role sees different saved-search columns. Export the saved search to CSV, then use <strong>Load Export File</strong>.
+              NetSuite is not exposing a complete results table to the script on this page. Export the saved search to CSV, then use <strong>Load Export File</strong>.
             </div>
           </div>
         </div>
@@ -3166,13 +3174,13 @@
 
     const candidate = findSavedSearchTable();
     if (!candidate) {
-      showWarning("Could not find a visible saved-search result table with SC Vertical, Request Type, and Solution Consultant columns.");
+      showWarning("No complete visible results table was found with SC Vertical, Request Type, and Solution Consultant columns.");
       return;
     }
 
     const { rows, error } = readRows(candidate.table, candidate.headers);
     if (error) {
-      showWarning(`SC Engagement Dashboard: ${error}`);
+      showWarning(error);
       return;
     }
     if (!rows.length) {
