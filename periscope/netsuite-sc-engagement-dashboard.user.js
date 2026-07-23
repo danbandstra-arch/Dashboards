@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.11.3
+// @version      2.11.4
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.11.3",
+    version: "2.11.4",
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
       "SCM.PERISCOPE",
@@ -459,7 +459,7 @@
       .filter((cells) => cells.length >= Math.max(verticalIdx, industryIdx, requestTypeIdx, consultantIdx) + 1)
       .map((cells) => ({
         vertical: resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx),
-        salesVertical: salesVerticalIdx >= 0 ? cleanVerticalValue(cells[salesVerticalIdx] || "", cells[verticalIdx] || "") : resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx),
+        salesVertical: salesVerticalIdx >= 0 ? cleanVerticalValue(cells[salesVerticalIdx] || "", cells[verticalIdx] || "") : "(sales vertical missing)",
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
         industrySubgroup: industrySubgroupIdx >= 0 ? cells[industrySubgroupIdx] || "(blank)" : "(industry subgroup column missing)",
         requestType: cells[requestTypeIdx] || "(blank)",
@@ -2283,7 +2283,7 @@
 
   function isCrossStaffedRow(row) {
     const scIndustryGroup = industryGroupKey(row.vertical);
-    const salesIndustryGroup = industryGroupKey(isKnownVertical(row.salesVertical) ? row.salesVertical : row.vertical);
+    const salesIndustryGroup = industryGroupKey(row.salesVertical);
     if (!scIndustryGroup || !salesIndustryGroup) return false;
     return scIndustryGroup !== salesIndustryGroup;
   }
@@ -2492,6 +2492,13 @@
   }
 
   function crossStaffingPies(summary) {
+    if (!hasSalesVerticalData(summary.rows)) {
+      return `
+        <div class="scd-warning">
+          Cross Staffing needs the <strong>Sales Vertical</strong> field in the export. The current CSV does not include a usable Sales Vertical, so this chart is hidden to avoid showing misleading results.
+        </div>
+      `;
+    }
     return `
       <div class="scd-industry-grid">
         ${pieCard(summary, "Direct", "Direct sales team requests by Industry Group", "salesVertical", {
@@ -2571,10 +2578,14 @@
     return summary.rows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg(salesTeam));
   }
 
+  function hasSalesVerticalData(rows) {
+    return rows.some((row) => isKnownVertical(row.salesVertical));
+  }
+
   function mapEntriesForRows(rows, field) {
     return Array.from(
       rows.reduce((map, row) => {
-        const value = field === "salesVertical" && !isKnownVertical(row[field]) ? row.vertical : row[field] || "(blank)";
+        const value = row[field] || "(blank)";
         if (!String(value).startsWith("(")) incrementMap(map, value);
         return map;
       }, new Map()).entries()
