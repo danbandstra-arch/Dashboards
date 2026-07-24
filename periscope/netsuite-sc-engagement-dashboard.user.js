@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.4
+// @version      2.12.5
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,8 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.4",
+    version: "2.12.5",
+    updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
@@ -1619,6 +1620,8 @@
             </div>
             <div class="scd-actions">
               <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
+              <button class="scd-tab" type="button" data-scd-net-suite-export>Reload NetSuite Export</button>
+              <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
               <button class="scd-tab" type="button" data-scd-refresh>Refresh</button>
               <button class="scd-tab" type="button" data-scd-close>Close</button>
             </div>
@@ -1771,6 +1774,8 @@
       });
       root.querySelector("[data-scd-refresh]")?.addEventListener("click", boot);
       root.querySelector("[data-scd-load-file]")?.addEventListener("click", promptForExportFile);
+      root.querySelector("[data-scd-net-suite-export]")?.addEventListener("click", reloadNetSuiteExport);
+      root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
       root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
       enableTableSorting(root);
       enableDrilldowns(root, isDealLookup ? summaryFromRows("Deal Lookup", lookupRows) : active);
@@ -3454,6 +3459,8 @@
           </div>
           <div class="scd-actions">
             <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
+            <button class="scd-tab" type="button" data-scd-net-suite-export>Reload NetSuite Export</button>
+            <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
             <button class="scd-tab" type="button" data-scd-refresh>Refresh</button>
             <button class="scd-tab" type="button" data-scd-close>Close</button>
           </div>
@@ -3470,6 +3477,8 @@
       </div>
     `;
     root.querySelector("[data-scd-load-file]")?.addEventListener("click", promptForExportFile);
+    root.querySelector("[data-scd-net-suite-export]")?.addEventListener("click", reloadNetSuiteExport);
+    root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
     root.querySelector("[data-scd-refresh]")?.addEventListener("click", boot);
     root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
     document.body.appendChild(root);
@@ -3501,6 +3510,24 @@
     });
     document.body.appendChild(input);
     input.click();
+  }
+
+  async function reloadNetSuiteExport() {
+    try {
+      showLoading("SC Engagement Dashboard: asking NetSuite for a fresh export...");
+      const result = await tryReadCsvExport();
+      if (result.error || !result.rows?.length) {
+        showWarning(`SC Engagement Dashboard: ${result.error || "No rows found in NetSuite export."}`);
+        return;
+      }
+      renderDashboard(summarize(result.rows), result.rows.length, result.source || "NetSuite export");
+    } catch (error) {
+      showWarning(`SC Engagement Dashboard: could not reload the NetSuite export. ${error.message || error}`);
+    }
+  }
+
+  function openScriptUpdate() {
+    window.open(CONFIG.updateUrl, "_blank", "noopener,noreferrer");
   }
 
   function showLoading(message) {
