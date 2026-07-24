@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.2
+// @version      2.12.3
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.2",
+    version: "2.12.3",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
@@ -369,7 +369,7 @@
   }
 
   function hasCoreHeaders(headers) {
-    const hasVerticalSource = findVerticalColumnIndex(headers, []) >= 0;
+    const hasVerticalSource = findVerticalHeaderIndex(headers) >= 0;
     return (
       hasVerticalSource &&
       findColumnIndex(headers, CONFIG.columnAliases.requestType) >= 0 &&
@@ -403,7 +403,12 @@
     return -1;
   }
 
-  function findVerticalColumnIndex(headers, cellsRows = []) {
+  function findVerticalHeaderIndex(headers) {
+    return findVerticalColumnIndex(headers, [], { requireValues: false });
+  }
+
+  function findVerticalColumnIndex(headers, cellsRows = [], options = {}) {
+    const requireValues = options.requireValues !== false;
     const keyed = headers.map((header) => headerKey(header));
     const candidates = keyed
       .map((key, idx) => ({ key, idx }))
@@ -428,7 +433,7 @@
       .sort((a, b) => b.knownCount - a.knownCount || b.nonBlankCount - a.nonBlankCount || a.priority - b.priority || a.idx - b.idx);
     const best = candidates[0];
     if (!best) return -1;
-    if (cellsRows.length && best.knownCount === 0) return -1;
+    if (requireValues && cellsRows.length && best.knownCount === 0) return -1;
     return best.idx;
   }
 
@@ -451,6 +456,7 @@
   }
 
   function rowsFromCells(cellsRows, headers) {
+    const verticalHeaderIdx = findVerticalHeaderIndex(headers);
     const verticalIdx = findVerticalColumnIndex(headers, cellsRows);
     const salesVerticalIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVertical);
     const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
@@ -495,8 +501,11 @@
     const scManagerNotes3Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes3);
     const hasSalesVerticalSource = salesVerticalIdx >= 0 && isExactSalesVerticalHeader(headers[salesVerticalIdx]);
 
-    if (verticalIdx < 0 || requestTypeIdx < 0 || consultantIdx < 0) {
+    if (verticalHeaderIdx < 0 || requestTypeIdx < 0 || consultantIdx < 0) {
       return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical (Employee), Request Type, Solution Consultant. Industry tabs require an SC-side vertical field and will not be inferred from Company Industry." };
+    }
+    if (verticalIdx < 0) {
+      return { rows: [], error: "The export includes an SC-side vertical column, but it is blank or does not contain recognized verticals. Populate SC Vertical or Vertical (Employee) in the saved search so Products, Business Services, Software, and other industry tabs show the correct SCs." };
     }
 
     const rows = cellsRows
