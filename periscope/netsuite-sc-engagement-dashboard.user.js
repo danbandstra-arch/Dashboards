@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.3
+// @version      2.12.4
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.3",
+    version: "2.12.4",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
@@ -1679,6 +1679,10 @@
                 ${rankedTable(active.byDeliverable, "Deliverable", 0, active.total)}
               </div>
             </div>
+            ${isVerticalView || isAllVerticals ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Org Blend Readiness</div>
+              ${legacyBlendTable(active)}
+            </div>` : ""}
             <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Deal Analysis by Deliverable</div>
               ${dealAnalysisTable(active)}
@@ -2299,6 +2303,8 @@
 
   function legacyBlendTable(summary) {
     const months = monthCountForRows(summary.rows);
+    const directWeight = 2;
+    const amoWeight = 1;
     const rows = Array.from(summary.byConsultant.keys())
       .map((name) => {
         const scRows = rowsForConsultant(summary, name);
@@ -2308,20 +2314,24 @@
         if (legacy !== "Direct" && legacy !== "AMO") return null;
         const nativeVolume = legacy === "Direct" ? direct : amo;
         const blendVolume = legacy === "Direct" ? amo : direct;
+        const weightedNative = legacy === "Direct" ? direct * directWeight : amo * amoWeight;
+        const weightedBlend = legacy === "Direct" ? amo * amoWeight : direct * directWeight;
+        const weightedTotal = weightedNative + weightedBlend;
         return {
           name,
           legacy,
-          nativeLabel: legacy === "Direct" ? "Direct Deals" : "AMO Deals",
-          blendLabel: legacy === "Direct" ? "AMO Blend" : "Direct Blend",
           nativeVolume,
           blendVolume,
           total: scRows.length,
           direct,
-          amo
+          amo,
+          weightedNative,
+          weightedBlend,
+          weightedTotal
         };
       })
       .filter(Boolean)
-      .sort((a, b) => b.blendVolume - a.blendVolume || b.nativeVolume - a.nativeVolume || a.name.localeCompare(b.name));
+      .sort((a, b) => b.weightedBlend - a.weightedBlend || b.blendVolume - a.blendVolume || b.nativeVolume - a.nativeVolume || a.name.localeCompare(b.name));
 
     if (!rows.length) return `<div class="scd-warning">No Legacy Direct or Legacy AMO SCs found in this view.</div>`;
 
@@ -2332,40 +2342,87 @@
         sum.blendVolume += row.blendVolume;
         sum.direct += row.direct;
         sum.amo += row.amo;
+        sum.weightedNative += row.weightedNative;
+        sum.weightedBlend += row.weightedBlend;
+        sum.weightedTotal += row.weightedTotal;
+        if (row.legacy === "Direct") {
+          sum.legacyDirectScs += 1;
+          if (row.amo > 0) sum.legacyDirectBlended += 1;
+          sum.directToAmoVolume += row.amo;
+        }
+        if (row.legacy === "AMO") {
+          sum.legacyAmoScs += 1;
+          if (row.direct > 0) sum.legacyAmoBlended += 1;
+          sum.amoToDirectVolume += row.direct;
+        }
         return sum;
       },
-      { total: 0, nativeVolume: 0, blendVolume: 0, direct: 0, amo: 0 }
+      {
+        total: 0,
+        nativeVolume: 0,
+        blendVolume: 0,
+        direct: 0,
+        amo: 0,
+        weightedNative: 0,
+        weightedBlend: 0,
+        weightedTotal: 0,
+        legacyDirectScs: 0,
+        legacyDirectBlended: 0,
+        legacyAmoScs: 0,
+        legacyAmoBlended: 0,
+        directToAmoVolume: 0,
+        amoToDirectVolume: 0
+      }
     );
-    const avgNativePerMonth = averageMonthlyValue(rows, (row) => row.nativeVolume / months);
+    const blendedScs = rows.filter((row) => row.blendVolume > 0).length;
+    const blendScore = totals.weightedTotal ? totals.weightedBlend / totals.weightedTotal : 0;
+    const directBlendPct = totals.legacyDirectScs ? totals.legacyDirectBlended / totals.legacyDirectScs : 0;
+    const amoBlendPct = totals.legacyAmoScs ? totals.legacyAmoBlended / totals.legacyAmoScs : 0;
     const avgBlendPerMonth = averageMonthlyValue(rows, (row) => row.blendVolume / months);
+    const avgWeightedBlendPerMonth = averageMonthlyValue(rows, (row) => row.weightedBlend / months);
 
-    return simpleTable(
-      ["SC", "Legacy Org", "Total Volume", "Direct", "AMO", "Native Org Volume", "Native / Mo", "BLEND Volume", "BLEND / Mo", "% Blend"],
-      rows.map((row) => [
-        { display: scLabel(summary, row.name), value: row.name, html: true, drill: { consultant: row.name } },
-        { display: row.legacy, value: row.legacy, drill: { legacyOrg: row.legacy } },
-        { display: formatNumber(row.total), value: row.total, heat: true, drill: { consultant: row.name } },
-        { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
-        { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
-        { display: formatNumber(row.nativeVolume), value: row.nativeVolume, heat: true, drill: { consultant: row.name, salesTeam: row.legacy } },
-        { display: monthlyVolumeLabel(row.nativeVolume, months), value: row.nativeVolume / months, heat: true, drill: { consultant: row.name, salesTeam: row.legacy } },
-        { display: formatNumber(row.blendVolume), value: row.blendVolume, heat: true, drill: { consultant: row.name, salesTeam: row.legacy === "Direct" ? "AMO" : "Direct" } },
-        { display: monthlyVolumeLabel(row.blendVolume, months), value: row.blendVolume / months, heat: true, drill: { consultant: row.name, salesTeam: row.legacy === "Direct" ? "AMO" : "Direct" } },
-        { display: row.total ? `${((row.blendVolume / row.total) * 100).toFixed(0)}%` : "0%", value: row.total ? row.blendVolume / row.total : 0, heat: true, drill: { consultant: row.name } }
-      ]),
-      [
-        { display: "Total", value: "Total" },
-        { display: "-", value: "" },
-        { display: formatNumber(totals.total), value: totals.total },
-        { display: formatNumber(totals.direct), value: totals.direct },
-        { display: formatNumber(totals.amo), value: totals.amo },
-        { display: formatNumber(totals.nativeVolume), value: totals.nativeVolume },
-        { display: monthlyAverageLabel(avgNativePerMonth), value: avgNativePerMonth },
-        { display: formatNumber(totals.blendVolume), value: totals.blendVolume },
-        { display: monthlyAverageLabel(avgBlendPerMonth), value: avgBlendPerMonth },
-        { display: totals.total ? `${((totals.blendVolume / totals.total) * 100).toFixed(0)}%` : "0%", value: totals.total ? totals.blendVolume / totals.total : 0 }
-      ]
-    );
+    return `
+      <div class="scd-kpis scd-compact-kpis">
+        ${kpi("Blended SCs", `${formatNumber(blendedScs)} / ${formatNumber(rows.length)}`, `${((blendedScs / rows.length) * 100).toFixed(0)}% have worked opposite legacy org`)}
+        ${kpi("Blend Volume", totals.blendVolume, `${monthlyAverageLabel(avgBlendPerMonth)} average across SCs`)}
+        ${kpi("Weighted Blend Score", `${(blendScore * 100).toFixed(0)}%`, `Direct work weighted ${directWeight}x; AMO work ${amoWeight}x`)}
+        ${kpi("AMO-to-Direct", totals.amoToDirectVolume, `${formatNumber(totals.legacyAmoBlended)} / ${formatNumber(totals.legacyAmoScs)} legacy AMO SCs blended`)}
+      </div>
+      <div class="scd-chart-note">
+        <strong>How to read this:</strong>
+        A blended SC has worked at least one opportunity for the opposite legacy org. Legacy Direct SCs blend when they work AMO opportunities; Legacy AMO SCs blend when they work Direct opportunities. Direct work is weighted higher because those engagements are typically larger and longer.
+      </div>
+      ${simpleTable(
+        ["SC", "Legacy Org", "Total", "Direct", "AMO", "Blend Vol", "Blend / Mo", "Weighted Blend", "Weighted / Mo", "% Blend"],
+        rows.map((row) => {
+          const oppositeOrg = row.legacy === "Direct" ? "AMO" : "Direct";
+          return [
+            { display: scLabel(summary, row.name), value: row.name, html: true, drill: { consultant: row.name } },
+            { display: row.legacy, value: row.legacy, drill: { legacyOrg: row.legacy } },
+            { display: formatNumber(row.total), value: row.total, heat: true, drill: { consultant: row.name } },
+            { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
+            { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
+            { display: formatNumber(row.blendVolume), value: row.blendVolume, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: monthlyVolumeLabel(row.blendVolume, months), value: row.blendVolume / months, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: formatNumber(row.weightedBlend, 1), value: row.weightedBlend, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: monthlyVolumeLabel(row.weightedBlend, months), value: row.weightedBlend / months, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: row.total ? `${((row.blendVolume / row.total) * 100).toFixed(0)}%` : "0%", value: row.total ? row.blendVolume / row.total : 0, heat: true, drill: { consultant: row.name } }
+          ];
+        }),
+        [
+          { display: "Total", value: "Total" },
+          { display: `${formatNumber(totals.legacyDirectBlended)} / ${formatNumber(totals.legacyDirectScs)} Direct, ${formatNumber(totals.legacyAmoBlended)} / ${formatNumber(totals.legacyAmoScs)} AMO`, value: blendedScs },
+          { display: formatNumber(totals.total), value: totals.total },
+          { display: formatNumber(totals.direct), value: totals.direct },
+          { display: formatNumber(totals.amo), value: totals.amo },
+          { display: formatNumber(totals.blendVolume), value: totals.blendVolume },
+          { display: monthlyAverageLabel(avgBlendPerMonth), value: avgBlendPerMonth },
+          { display: formatNumber(totals.weightedBlend, 1), value: totals.weightedBlend },
+          { display: monthlyAverageLabel(avgWeightedBlendPerMonth), value: avgWeightedBlendPerMonth },
+          { display: totals.total ? `${((totals.blendVolume / totals.total) * 100).toFixed(0)}%` : "0%", value: totals.total ? totals.blendVolume / totals.total : 0 }
+        ]
+      )}
+    `;
   }
 
   function isCrossStaffedRow(row) {
