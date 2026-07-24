@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.1
+// @version      2.12.2
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.1",
+    version: "2.12.2",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
@@ -52,7 +52,7 @@
       "Wholesale/Distribution"
     ],
     columnAliases: {
-      vertical: ["SC Vertical", "Industry Family", "Vertical"],
+      vertical: ["SC Vertical", "Assign: Assigned To (Roster) : Sales Vertical", "Assigned To (Roster) : Sales Vertical", "Vertical (Employee)", "Industry Family", "Vertical"],
       salesVertical: ["Sales Vertical", "Industry Group", "Sales Industry Group"],
       industry: ["Company Industry", "Customer Industry", "Industry"],
       industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Sub Industry", "Sub-Industry", "Company Industry Subgroup", "Company Industry Sub Group"],
@@ -183,12 +183,11 @@
     return familyMap.get(key) || "(vertical unmapped)";
   }
 
-  function resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx) {
+  function resolveVerticalFromCells(cells, verticalIdx) {
     const vertical = verticalIdx >= 0 ? cells[verticalIdx] || "" : "";
-    const companyIndustry = industryIdx >= 0 ? cells[industryIdx] || "" : "";
     const cleaned = cleanVerticalValue(vertical);
     if (isKnownVertical(cleaned)) return cleaned;
-    return inferIndustryFamily(companyIndustry);
+    return "(vertical unmapped)";
   }
 
   function isValueManagementText(value) {
@@ -370,9 +369,7 @@
   }
 
   function hasCoreHeaders(headers) {
-    const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
-    const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry, [industrySubgroupIdx]);
-    const hasVerticalSource = findColumnIndex(headers, CONFIG.columnAliases.vertical) >= 0 || industryIdx >= 0;
+    const hasVerticalSource = findVerticalColumnIndex(headers, []) >= 0;
     return (
       hasVerticalSource &&
       findColumnIndex(headers, CONFIG.columnAliases.requestType) >= 0 &&
@@ -406,6 +403,47 @@
     return -1;
   }
 
+  function findVerticalColumnIndex(headers, cellsRows = []) {
+    const keyed = headers.map((header) => headerKey(header));
+    const candidates = keyed
+      .map((key, idx) => ({ key, idx }))
+      .filter(({ key }) => {
+        if (!key) return false;
+        if (key === "salesvertical" || key === "salesindustrygroup" || key === "industrygroup") return false;
+        return (
+          key === "scvertical" ||
+          key === "industryfamily" ||
+          key === "verticalemployee" ||
+          key === "assignassignedtorostersalesvertical" ||
+          key === "assignedtorostersalesvertical" ||
+          key === "vertical"
+        );
+      })
+      .map((candidate) => {
+        const knownCount = cellsRows.reduce((count, cells) => count + (isKnownVertical(cells[candidate.idx]) ? 1 : 0), 0);
+        const nonBlankCount = cellsRows.reduce((count, cells) => count + (normalizeText(cells[candidate.idx]) ? 1 : 0), 0);
+        const priority = verticalHeaderPriority(candidate.key);
+        return { ...candidate, knownCount, nonBlankCount, priority };
+      })
+      .sort((a, b) => b.knownCount - a.knownCount || b.nonBlankCount - a.nonBlankCount || a.priority - b.priority || a.idx - b.idx);
+    const best = candidates[0];
+    if (!best) return -1;
+    if (cellsRows.length && best.knownCount === 0) return -1;
+    return best.idx;
+  }
+
+  function verticalHeaderPriority(key) {
+    const priorities = new Map([
+      ["scvertical", 1],
+      ["assignassignedtorostersalesvertical", 2],
+      ["assignedtorostersalesvertical", 3],
+      ["verticalemployee", 4],
+      ["industryfamily", 5],
+      ["vertical", 6]
+    ]);
+    return priorities.get(key) || 99;
+  }
+
   function headerKey(value) {
     return normalizeText(value)
       .toLowerCase()
@@ -413,7 +451,7 @@
   }
 
   function rowsFromCells(cellsRows, headers) {
-    const verticalIdx = findColumnIndex(headers, CONFIG.columnAliases.vertical);
+    const verticalIdx = findVerticalColumnIndex(headers, cellsRows);
     const salesVerticalIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVertical);
     const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
     const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry, [industrySubgroupIdx]);
@@ -457,15 +495,15 @@
     const scManagerNotes3Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes3);
     const hasSalesVerticalSource = salesVerticalIdx >= 0 && isExactSalesVerticalHeader(headers[salesVerticalIdx]);
 
-    if ((verticalIdx < 0 && industryIdx < 0) || requestTypeIdx < 0 || consultantIdx < 0) {
-      return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical or Company Industry, Request Type, Solution Consultant." };
+    if (verticalIdx < 0 || requestTypeIdx < 0 || consultantIdx < 0) {
+      return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical (Employee), Request Type, Solution Consultant. Industry tabs require an SC-side vertical field and will not be inferred from Company Industry." };
     }
 
     const rows = cellsRows
       .filter((cells) => cells.length >= Math.max(verticalIdx, industryIdx, requestTypeIdx, consultantIdx) + 1)
       .map((cells) => ({
-        vertical: resolveVerticalFromCells(cells, verticalIdx, salesVerticalIdx, industryIdx),
-        salesVertical: hasSalesVerticalSource ? cleanVerticalValue(cells[salesVerticalIdx] || "", cells[verticalIdx] || "") : "(sales vertical missing)",
+        vertical: resolveVerticalFromCells(cells, verticalIdx),
+        salesVertical: hasSalesVerticalSource ? cleanVerticalValue(cells[salesVerticalIdx] || "") : "(sales vertical missing)",
         salesVerticalRaw: hasSalesVerticalSource ? cells[salesVerticalIdx] || "" : "",
         salesVerticalSource: hasSalesVerticalSource,
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
@@ -1631,10 +1669,6 @@
                 <div class="scd-panel-title">Deliverable Mix</div>
                 ${rankedTable(active.byDeliverable, "Deliverable", 0, active.total)}
               </div>
-            </div>
-            <div class="scd-panel scd-deep-grid">
-              <div class="scd-panel-title">Legacy Org Staffing Blend</div>
-              ${legacyBlendTable(active)}
             </div>
             <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Deal Analysis by Deliverable</div>
@@ -3455,7 +3489,7 @@
 
     const candidate = findSavedSearchTable();
     if (!candidate) {
-      showWarning("No complete visible results table was found with SC Vertical/Vertical or Company Industry, Request Type, and Solution Consultant columns.");
+      showWarning("No complete visible results table was found with SC Vertical/Vertical (Employee), Request Type, and Solution Consultant columns. Industry tabs require a populated SC-side vertical field.");
       return;
     }
 
