@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.7
+// @version      2.12.8
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.7",
+    version: "2.12.8",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -1158,6 +1158,57 @@
         font-size: 12px;
         padding: 7px 10px;
       }
+      .scd-filter-multi {
+        position: relative;
+      }
+      .scd-filter-multi summary {
+        border: 1px solid var(--rw-muted);
+        border-radius: 999px;
+        color: var(--rw-ink);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+        list-style: none;
+        min-width: 132px;
+        padding: 7px 12px;
+        user-select: none;
+      }
+      .scd-filter-multi summary::-webkit-details-marker {
+        display: none;
+      }
+      .scd-filter-multi[open] summary {
+        background: #fff8ed;
+        border-color: var(--rw-gold);
+      }
+      .scd-filter-multi-options {
+        background: #fffdfa;
+        border: 1px solid var(--rw-line);
+        border-radius: 12px;
+        box-shadow: 0 18px 42px rgba(46, 41, 37, 0.16);
+        display: grid;
+        gap: 8px;
+        left: 0;
+        margin-top: 6px;
+        max-height: 260px;
+        min-width: 220px;
+        overflow: auto;
+        padding: 10px;
+        position: absolute;
+        top: 100%;
+        z-index: 100001;
+      }
+      .scd-filterbar .scd-filter-multi-option {
+        align-items: center;
+        color: var(--rw-ink);
+        display: flex;
+        font-size: 12px;
+        font-weight: 600;
+        gap: 8px;
+        white-space: nowrap;
+      }
+      .scd-filterbar .scd-filter-multi-option input {
+        margin: 0;
+      }
       .scd-filterbar button {
         margin-left: 0;
       }
@@ -1748,6 +1799,15 @@
           render();
         });
       });
+      root.querySelectorAll("[data-scd-dashboard-multi]").forEach((input) => {
+        input.addEventListener("change", (event) => {
+          const key = event.target.getAttribute("data-scd-dashboard-multi");
+          const boxes = Array.from(root.querySelectorAll(`[data-scd-dashboard-multi="${key}"]`));
+          const selected = boxes.filter((box) => box.checked).map((box) => box.value);
+          dashboardFilters[key] = selected.length === boxes.length ? null : selected;
+          render();
+        });
+      });
       root.querySelector("[data-scd-clear-dashboard-filters]")?.addEventListener("click", () => {
         dashboardFilters = makeEmptyDashboardFilters();
         render();
@@ -1915,6 +1975,7 @@
 
   function makeEmptyDashboardFilters() {
     return {
+      orgs: null,
       status: "all",
       leadSc: "all",
       crossStaffed: "all",
@@ -1928,8 +1989,10 @@
     const dates = rows.map((row) => row.dateValue).filter(Boolean).sort();
     const minDate = dates[0] || "";
     const maxDate = dates[dates.length - 1] || "";
+    const orgOptions = requestTypeOptionsForRows(rows);
     return `
       <div class="scd-filterbar">
+        ${multiFilterSelect("Org", "orgs", orgOptions, filters.orgs)}
         ${filterSelectWithAttr("Status", "status", uniqueSorted(rows, "status"), filters.status, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Cross Staffed", "crossStaffed", ["Cross Staffed Only", "Not Cross Staffed"], filters.crossStaffed, "data-scd-dashboard-filter")}
@@ -1949,6 +2012,7 @@
 
   function applyDashboardFilters(rows, filters) {
     return rows.filter((row) => {
+      if (Array.isArray(filters.orgs) && !filters.orgs.includes(requestTypeLabel(row))) return false;
       if (filters.status !== "all" && normalizeText(row.status) !== filters.status) return false;
       if (filters.leadSc === "Lead SC Only" && !isLeadScValue(row.leadSc)) return false;
       if (filters.leadSc === "Supporting SC Only" && isLeadScValue(row.leadSc)) return false;
@@ -3117,6 +3181,32 @@
     return filterSelectWithAttr(label, key, options, value, "data-scd-detail-filter");
   }
 
+  function multiFilterSelect(label, key, options, selectedValues) {
+    if (!options.length) return "";
+    const selectedSet = Array.isArray(selectedValues) ? new Set(selectedValues) : null;
+    const isAll = !selectedSet;
+    const summary = isAll
+      ? `${label}: All`
+      : selectedSet.size === 0
+        ? `${label}: None`
+        : selectedSet.size <= 2
+          ? `${label}: ${Array.from(selectedSet).join(", ")}`
+          : `${label}: ${selectedSet.size} selected`;
+    return `
+      <details class="scd-filter-multi">
+        <summary>${escapeHtml(summary)}</summary>
+        <div class="scd-filter-multi-options">
+          ${options.map((option) => `
+            <label class="scd-filter-multi-option">
+              <input type="checkbox" data-scd-dashboard-multi="${escapeHtml(key)}" value="${escapeHtml(option)}"${isAll || selectedSet.has(option) ? " checked" : ""}>
+              <span>${escapeHtml(option)}</span>
+            </label>
+          `).join("")}
+        </div>
+      </details>
+    `;
+  }
+
   function filterSelectWithAttr(label, key, options, value, attrName) {
     return `
       <label>
@@ -3133,6 +3223,17 @@
 
   function uniqueSorted(rows, field) {
     return uniqueSortedValues(rows.map((row) => normalizeText(row[field])));
+  }
+
+  function requestTypeOptionsForRows(rows) {
+    const order = ["AMO", "Direct", "Channel AMO", "Channel Direct", "Value Management", "Technology COE", "SCAI Support"];
+    const values = uniqueSortedValues(rows.map(requestTypeLabel));
+    return values.sort((a, b) => {
+      const ai = order.indexOf(a);
+      const bi = order.indexOf(b);
+      if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      return a.localeCompare(b);
+    });
   }
 
   function knownVerticalOptions(rows) {
