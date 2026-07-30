@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.8
+// @version      2.12.9
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.8",
+    version: "2.12.9",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -78,6 +78,7 @@
       status: ["SC Status", "Status"],
       asaTotal: ["ASA Total", "ASA"],
       gasaTotal: ["GASA Total", "GASA"],
+      arrCommit: ["ARR Commit", "ARR", "Opportunity ARR Commit", "Opp: ARR Commit", "Opp ARR Commit"],
       probability: ["Probability %", "Probability", "Prob %"],
       salesRep: ["Sales Rep", "Sales Representative"],
       salesManager: ["Sales Manager", "Sales Rep Manager", "Rep Manager", "Front Line Manager"],
@@ -483,6 +484,7 @@
     const statusIdx = findColumnIndex(headers, CONFIG.columnAliases.status);
     const asaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.asaTotal);
     const gasaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.gasaTotal);
+    const arrCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.arrCommit);
     const probabilityIdx = findColumnIndex(headers, CONFIG.columnAliases.probability);
     const salesRepIdx = findColumnIndex(headers, CONFIG.columnAliases.salesRep);
     const salesManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.salesManager);
@@ -542,6 +544,7 @@
         status: statusIdx >= 0 ? cells[statusIdx] || "" : "",
         asaTotal: asaTotalIdx >= 0 ? parseMoney(cells[asaTotalIdx]) : 0,
         gasaTotal: gasaTotalIdx >= 0 ? parseMoney(cells[gasaTotalIdx]) : 0,
+        arrCommit: arrCommitIdx >= 0 ? parseMoney(cells[arrCommitIdx]) : 0,
         probability: probabilityIdx >= 0 ? parseProbability(cells[probabilityIdx]) : null,
         salesRep: salesRepIdx >= 0 ? cells[salesRepIdx] || "" : "",
         salesManager: salesManagerIdx >= 0 ? cells[salesManagerIdx] || "" : "",
@@ -3264,7 +3267,7 @@
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
@@ -3293,6 +3296,7 @@
         row.oppStatus,
         row.status,
         row.probability === null ? "" : `${(row.probability * 100).toFixed(0)}%`,
+        formatCurrency(row.arrCommit || 0),
         formatCurrency(pipelineRevenue(row)),
         formatCurrency(closedRevenue(row)),
         formatCurrency(rowRevenue(row)),
