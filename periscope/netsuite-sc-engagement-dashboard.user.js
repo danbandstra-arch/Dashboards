@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.12.9
+// @version      2.13.0
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.12.9",
+    version: "2.13.0",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -79,6 +79,8 @@
       asaTotal: ["ASA Total", "ASA"],
       gasaTotal: ["GASA Total", "GASA"],
       arrCommit: ["ARR Commit", "ARR", "Opportunity ARR Commit", "Opp: ARR Commit", "Opp ARR Commit"],
+      mgrCommit: ["MGR Commit", "Manager Commit", "Mgr Commit", "Opp: MGR Commit", "Opp MGR Commit"],
+      vlCommit: ["VL Commit", "VP Commit", "Sales VP Commit", "Opp: VL Commit", "Opp VL Commit"],
       probability: ["Probability %", "Probability", "Prob %"],
       salesRep: ["Sales Rep", "Sales Representative"],
       salesManager: ["Sales Manager", "Sales Rep Manager", "Rep Manager", "Front Line Manager"],
@@ -294,6 +296,18 @@
     return opportunityBucket(row.oppStatus) === "Won" ? rowRevenue(row) : 0;
   }
 
+  function arrCommit(row) {
+    return row.arrCommit || 0;
+  }
+
+  function mgrCommit(row) {
+    return row.mgrCommit || 0;
+  }
+
+  function vlCommit(row) {
+    return row.vlCommit || 0;
+  }
+
   function sumRows(rows, getter) {
     return rows.reduce((sum, row) => sum + getter(row), 0);
   }
@@ -485,6 +499,8 @@
     const asaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.asaTotal);
     const gasaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.gasaTotal);
     const arrCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.arrCommit);
+    const mgrCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.mgrCommit);
+    const vlCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.vlCommit);
     const probabilityIdx = findColumnIndex(headers, CONFIG.columnAliases.probability);
     const salesRepIdx = findColumnIndex(headers, CONFIG.columnAliases.salesRep);
     const salesManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.salesManager);
@@ -545,6 +561,8 @@
         asaTotal: asaTotalIdx >= 0 ? parseMoney(cells[asaTotalIdx]) : 0,
         gasaTotal: gasaTotalIdx >= 0 ? parseMoney(cells[gasaTotalIdx]) : 0,
         arrCommit: arrCommitIdx >= 0 ? parseMoney(cells[arrCommitIdx]) : 0,
+        mgrCommit: mgrCommitIdx >= 0 ? parseMoney(cells[mgrCommitIdx]) : 0,
+        vlCommit: vlCommitIdx >= 0 ? parseMoney(cells[vlCommitIdx]) : 0,
         probability: probabilityIdx >= 0 ? parseProbability(cells[probabilityIdx]) : null,
         salesRep: salesRepIdx >= 0 ? cells[salesRepIdx] || "" : "",
         salesManager: salesManagerIdx >= 0 ? cells[salesManagerIdx] || "" : "",
@@ -915,6 +933,9 @@
         pipelineRevenue: 0,
         closedRevenue: 0,
         weightedRevenue: 0,
+        arrCommit: 0,
+        mgrCommit: 0,
+        vlCommit: 0,
         won: 0,
         open: 0,
         lost: 0,
@@ -928,6 +949,9 @@
     metric.pipelineRevenue += pipelineRevenue(row);
     metric.closedRevenue += closedRevenue(row);
     metric.weightedRevenue += weightedRevenue(row);
+    metric.arrCommit += arrCommit(row);
+    metric.mgrCommit += mgrCommit(row);
+    metric.vlCommit += vlCommit(row);
     if (bucket === "Won") metric.won += 1;
     else if (bucket === "Lost") metric.lost += 1;
     else if (bucket === "Open") metric.open += 1;
@@ -1920,10 +1944,16 @@
     const totalRevenue = sumRows(rows, rowRevenue);
     const totalPipelineRevenue = sumRows(rows, pipelineRevenue);
     const totalWeightedRevenue = sumRows(rows, weightedRevenue);
+    const totalArrCommit = sumRows(rows, arrCommit);
+    const totalMgrCommit = sumRows(rows, mgrCommit);
+    const totalVlCommit = sumRows(rows, vlCommit);
     return `
       <div class="scd-kpis">
         ${kpi("Matching SCRs", hasCriteria ? rows.length : 0)}
         ${kpi("Unique Customers", hasCriteria ? new Set(rows.map((row) => normalizeText(row.company)).filter(Boolean)).size : 0)}
+        ${kpi("ARR Commit", hasCriteria ? formatCurrency(totalArrCommit) : "$0")}
+        ${kpi("MGR Commit", hasCriteria ? formatCurrency(totalMgrCommit) : "$0")}
+        ${kpi("VL Commit", hasCriteria ? formatCurrency(totalVlCommit) : "$0")}
         ${kpi("Pipeline Rev", hasCriteria ? formatCurrency(totalPipelineRevenue) : "$0")}
         ${kpi("Weighted Rev", hasCriteria ? formatCurrency(totalWeightedRevenue) : "$0", hasCriteria ? `${formatCurrency(totalRevenue)} total rev` : "")}
       </div>
@@ -2526,23 +2556,29 @@
         sum.closedRevenue += metric.closedRevenue;
         sum.totalRevenue += metric.totalRevenue;
         sum.weightedRevenue += metric.weightedRevenue;
+        sum.arrCommit += metric.arrCommit;
+        sum.mgrCommit += metric.mgrCommit;
+        sum.vlCommit += metric.vlCommit;
         sum.won += metric.won;
         sum.open += metric.open;
         sum.lost += metric.lost;
         return sum;
       },
-      { requests: 0, pipelineRevenue: 0, closedRevenue: 0, totalRevenue: 0, weightedRevenue: 0, won: 0, open: 0, lost: 0 }
+      { requests: 0, pipelineRevenue: 0, closedRevenue: 0, totalRevenue: 0, weightedRevenue: 0, arrCommit: 0, mgrCommit: 0, vlCommit: 0, won: 0, open: 0, lost: 0 }
     );
     const totalClosed = totals.won + totals.lost;
     const totalWinRate = totalClosed ? totals.won / totalClosed : null;
     return simpleTable(
-      ["Deliverable", "Requests", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
+      ["Deliverable", "Requests", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
       entries.map((metric) => {
         const closed = metric.won + metric.lost;
         const winRate = closed ? metric.won / closed : null;
         return [
           { display: metric.deliverable, value: metric.deliverable, drill: { deliverable: metric.deliverable } },
           { display: formatNumber(metric.requests), value: metric.requests, drill: { deliverable: metric.deliverable } },
+          { display: formatCurrency(metric.arrCommit), value: metric.arrCommit, heat: true, drill: { deliverable: metric.deliverable } },
+          { display: formatCurrency(metric.mgrCommit), value: metric.mgrCommit, heat: true, drill: { deliverable: metric.deliverable } },
+          { display: formatCurrency(metric.vlCommit), value: metric.vlCommit, heat: true, drill: { deliverable: metric.deliverable } },
           { display: formatCurrency(metric.pipelineRevenue), value: metric.pipelineRevenue, heat: true, drill: { deliverable: metric.deliverable, oppBucket: "Open" } },
           { display: formatCurrency(metric.closedRevenue), value: metric.closedRevenue, heat: true, drill: { deliverable: metric.deliverable, oppBucket: "Won" } },
           { display: formatCurrency(metric.totalRevenue), value: metric.totalRevenue, heat: true, drill: { deliverable: metric.deliverable } },
@@ -2557,6 +2593,9 @@
       [
         { display: entries.length < summary.dealByDeliverable.size ? "Shown Total" : "Total", value: "Total" },
         { display: formatNumber(totals.requests), value: totals.requests },
+        { display: formatCurrency(totals.arrCommit), value: totals.arrCommit },
+        { display: formatCurrency(totals.mgrCommit), value: totals.mgrCommit },
+        { display: formatCurrency(totals.vlCommit), value: totals.vlCommit },
         { display: formatCurrency(totals.pipelineRevenue), value: totals.pipelineRevenue },
         { display: formatCurrency(totals.closedRevenue), value: totals.closedRevenue },
         { display: formatCurrency(totals.totalRevenue), value: totals.totalRevenue },
@@ -2616,6 +2655,9 @@
       const closedRevenueTotal = sumRows(scRows, closedRevenue);
       const revenue = sumRows(scRows, rowRevenue);
       const weighted = sumRows(scRows, weightedRevenue);
+      const arrCommitTotal = sumRows(scRows, arrCommit);
+      const mgrCommitTotal = sumRows(scRows, mgrCommit);
+      const vlCommitTotal = sumRows(scRows, vlCommit);
       const won = scRows.filter((row) => opportunityBucket(row.oppStatus) === "Won").length;
       const open = scRows.filter((row) => opportunityBucket(row.oppStatus) === "Open").length;
       const lost = scRows.filter((row) => opportunityBucket(row.oppStatus) === "Lost").length;
@@ -2631,6 +2673,9 @@
         closedRevenueTotal,
         revenue,
         weighted,
+        arrCommitTotal,
+        mgrCommitTotal,
+        vlCommitTotal,
         won,
         open,
         lost,
@@ -2646,12 +2691,15 @@
         sum.closedRevenueTotal += row.closedRevenueTotal;
         sum.revenue += row.revenue;
         sum.weighted += row.weighted;
+        sum.arrCommitTotal += row.arrCommitTotal;
+        sum.mgrCommitTotal += row.mgrCommitTotal;
+        sum.vlCommitTotal += row.vlCommitTotal;
         sum.won += row.won;
         sum.open += row.open;
         sum.lost += row.lost;
         return sum;
       },
-      { volume: 0, direct: 0, amo: 0, pipeline: 0, closedRevenueTotal: 0, revenue: 0, weighted: 0, won: 0, open: 0, lost: 0 }
+      { volume: 0, direct: 0, amo: 0, pipeline: 0, closedRevenueTotal: 0, revenue: 0, weighted: 0, arrCommitTotal: 0, mgrCommitTotal: 0, vlCommitTotal: 0, won: 0, open: 0, lost: 0 }
     );
     const totalClosed = totals.won + totals.lost;
     const totalWinRate = totalClosed ? totals.won / totalClosed : null;
@@ -2659,7 +2707,7 @@
     const avgDirectPerMonth = averageMonthlyValue(rows, (row) => row.direct / row.months);
     const avgAmoPerMonth = averageMonthlyValue(rows, (row) => row.amo / row.months);
     return simpleTable(
-      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
+      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
       rows.map((row) => {
         return [
           { display: scLabel(summary, row.name), value: row.name, html: true, drill: { consultant: row.name } },
@@ -2669,6 +2717,9 @@
           { display: monthlyVolumeLabel(row.direct, row.months), value: row.direct / row.months, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
           { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
           { display: monthlyVolumeLabel(row.amo, row.months), value: row.amo / row.months, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
+          { display: formatCurrency(row.arrCommitTotal), value: row.arrCommitTotal, heat: true, drill: { consultant: row.name } },
+          { display: formatCurrency(row.mgrCommitTotal), value: row.mgrCommitTotal, heat: true, drill: { consultant: row.name } },
+          { display: formatCurrency(row.vlCommitTotal), value: row.vlCommitTotal, heat: true, drill: { consultant: row.name } },
           { display: formatCurrency(row.pipeline), value: row.pipeline, heat: true, drill: { consultant: row.name, oppBucket: "Open" } },
           { display: formatCurrency(row.closedRevenueTotal), value: row.closedRevenueTotal, heat: true, drill: { consultant: row.name, oppBucket: "Won" } },
           { display: formatCurrency(row.revenue), value: row.revenue, heat: true, drill: { consultant: row.name } },
@@ -2688,6 +2739,9 @@
         { display: monthlyAverageLabel(avgDirectPerMonth), value: avgDirectPerMonth },
         { display: formatNumber(totals.amo), value: totals.amo },
         { display: monthlyAverageLabel(avgAmoPerMonth), value: avgAmoPerMonth },
+        { display: formatCurrency(totals.arrCommitTotal), value: totals.arrCommitTotal },
+        { display: formatCurrency(totals.mgrCommitTotal), value: totals.mgrCommitTotal },
+        { display: formatCurrency(totals.vlCommitTotal), value: totals.vlCommitTotal },
         { display: formatCurrency(totals.pipeline), value: totals.pipeline },
         { display: formatCurrency(totals.closedRevenueTotal), value: totals.closedRevenueTotal },
         { display: formatCurrency(totals.revenue), value: totals.revenue },
@@ -3053,6 +3107,9 @@
       const totalPipelineRevenue = sumRows(filteredRows, pipelineRevenue);
       const totalClosedRevenue = sumRows(filteredRows, closedRevenue);
       const totalWeightedRevenue = sumRows(filteredRows, weightedRevenue);
+      const totalArrCommit = sumRows(filteredRows, arrCommit);
+      const totalMgrCommit = sumRows(filteredRows, mgrCommit);
+      const totalVlCommit = sumRows(filteredRows, vlCommit);
 
       root.innerHTML = `
         <div class="scd-modal-card" role="dialog" aria-modal="true" aria-label="Drilldown Detail">
@@ -3074,6 +3131,9 @@
               ${kpi("Unique SCs", summary.consultants.size)}
               ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs / ${monthlyVolumeLabel(amo.volume, drillMonthCount)}`)}
               ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs / ${monthlyVolumeLabel(direct.volume, drillMonthCount)}`)}
+              ${kpi("ARR Commit", formatCurrency(totalArrCommit))}
+              ${kpi("MGR Commit", formatCurrency(totalMgrCommit))}
+              ${kpi("VL Commit", formatCurrency(totalVlCommit))}
               ${kpi("Pipeline Rev", formatCurrency(totalPipelineRevenue))}
               ${kpi("Closed Rev", formatCurrency(totalClosedRevenue))}
               ${kpi("Revenue", formatCurrency(totalRevenue))}
@@ -3267,7 +3327,7 @@
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
@@ -3296,7 +3356,9 @@
         row.oppStatus,
         row.status,
         row.probability === null ? "" : `${(row.probability * 100).toFixed(0)}%`,
-        formatCurrency(row.arrCommit || 0),
+        formatCurrency(arrCommit(row)),
+        formatCurrency(mgrCommit(row)),
+        formatCurrency(vlCommit(row)),
         formatCurrency(pipelineRevenue(row)),
         formatCurrency(closedRevenue(row)),
         formatCurrency(rowRevenue(row)),
@@ -3311,7 +3373,7 @@
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       <div class="scd-table-scroll">
@@ -3346,6 +3408,9 @@
                   row.oppStatus,
                   row.forecastGrade,
                   row.status,
+                  formatCurrency(arrCommit(row)),
+                  formatCurrency(mgrCommit(row)),
+                  formatCurrency(vlCommit(row)),
                   formatCurrency(pipelineRevenue(row)),
                   formatCurrency(rowRevenue(row)),
                   formatCurrency(weightedRevenue(row)),
@@ -3448,7 +3513,7 @@
   function staffedScTable(summary) {
     const summaryMonths = monthCountForRows(summary.rows);
     return simpleTable(
-      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
+      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
       sortedEntries(summary.byConsultant).map(([name, volume]) => {
         const direct = salesTeamVolumeFor(summary, name, "Direct");
         const amo = salesTeamVolumeFor(summary, name, "AMO");
@@ -3458,6 +3523,9 @@
         const closed = sumRows(scRows, closedRevenue);
         const revenue = sumRows(scRows, rowRevenue);
         const weighted = sumRows(scRows, weightedRevenue);
+        const arrCommitTotal = sumRows(scRows, arrCommit);
+        const mgrCommitTotal = sumRows(scRows, mgrCommit);
+        const vlCommitTotal = sumRows(scRows, vlCommit);
         return [
           { display: scLabel(summary, name), value: name, html: true, drill: { consultant: name } },
           { display: formatNumber(volume), value: volume, heat: true, drill: { consultant: name } },
@@ -3466,6 +3534,9 @@
           { display: monthlyVolumeLabel(direct, months), value: direct / months, heat: true, drill: { consultant: name, salesTeam: "Direct" } },
           { display: formatNumber(amo), value: amo, heat: true, drill: { consultant: name, salesTeam: "AMO" } },
           { display: monthlyVolumeLabel(amo, months), value: amo / months, heat: true, drill: { consultant: name, salesTeam: "AMO" } },
+          { display: formatCurrency(arrCommitTotal), value: arrCommitTotal, heat: true, drill: { consultant: name } },
+          { display: formatCurrency(mgrCommitTotal), value: mgrCommitTotal, heat: true, drill: { consultant: name } },
+          { display: formatCurrency(vlCommitTotal), value: vlCommitTotal, heat: true, drill: { consultant: name } },
           { display: formatCurrency(pipeline), value: pipeline, heat: true, drill: { consultant: name, oppBucket: "Open" } },
           { display: formatCurrency(closed), value: closed, heat: true, drill: { consultant: name, oppBucket: "Won" } },
           { display: formatCurrency(revenue), value: revenue, heat: true, drill: { consultant: name } },
