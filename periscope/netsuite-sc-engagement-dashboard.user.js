@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.0
+// @version      2.13.1
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.0",
+    version: "2.13.1",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -62,7 +62,8 @@
       legacyOrg: ["Legacy Org", "Legacy Organization", "SC Legacy Org"],
       consultant: ["Solution Consultant", "SC", "Staffed SC"],
       leadSc: ["Lead SC", "Lead", "Assign as Lead SC", "Assign: Lead SC"],
-      manager: ["Assigned To Manager", "Assigned to Manager", "Manager"],
+      manager: ["Current Manager", "Assigned To Manager", "Assigned to Manager", "Manager"],
+      subregion: ["Subregion", "Sub Region", "Sub-Region", "SC Sub Region", "SC Sub-Region", "Sales Sub Region", "Sales Sub-Region"],
       deliverable: ["Deliverable", "Engagement Type"],
       date: ["Date Created", "Created Date", "Date Needed", "Exp Close"],
       oml5: ["OML5", "OM L5", "L5", "OML 5"],
@@ -483,6 +484,7 @@
     const consultantIdx = findColumnIndex(headers, CONFIG.columnAliases.consultant);
     const leadScIdx = findColumnIndex(headers, CONFIG.columnAliases.leadSc);
     const managerIdx = findColumnIndex(headers, CONFIG.columnAliases.manager);
+    const subregionIdx = findColumnIndex(headers, CONFIG.columnAliases.subregion);
     const deliverableIdx = findColumnIndex(headers, CONFIG.columnAliases.deliverable);
     const dateIdx = findColumnIndex(headers, CONFIG.columnAliases.date);
     const oml5Idx = findColumnIndex(headers, CONFIG.columnAliases.oml5);
@@ -542,6 +544,7 @@
         consultant: cells[consultantIdx] || "(blank)",
         leadSc: leadScIdx >= 0 ? cells[leadScIdx] || "" : "",
         manager: managerIdx >= 0 ? cells[managerIdx] || "(blank)" : "(manager column missing)",
+        subregion: subregionIdx >= 0 ? cells[subregionIdx] || "(blank)" : "(subregion column missing)",
         deliverable: deliverableIdx >= 0 ? cells[deliverableIdx] || "(blank)" : "(deliverable column missing)",
         oml5: oml5Idx >= 0 ? cells[oml5Idx] || "" : "",
         oml6: oml6Idx >= 0 ? cells[oml6Idx] || "" : "",
@@ -840,6 +843,7 @@
       consultants: new Set(),
       consultantsByRequestType: new Map(),
       byManager: new Map(),
+      bySubregion: new Map(),
       byDeliverable: new Map(),
       byIndustry: new Map(),
       byForecastGrade: new Map(),
@@ -862,6 +866,7 @@
     summary.byRequestType.set(requestType, (summary.byRequestType.get(requestType) || 0) + 1);
     summary.consultants.add(row.consultant);
     incrementMap(summary.byManager, row.manager || "(blank)");
+    incrementMap(summary.bySubregion, row.subregion || "(blank)");
     incrementMap(summary.byDeliverable, deliverableLabel(row));
     incrementMap(summary.byIndustry, row.industry || "(blank)");
     incrementMap(summary.byForecastGrade, forecastGradeLabel(row));
@@ -1752,13 +1757,17 @@
             </div>` : ""}
             <div class="scd-grid scd-deep-grid">
               <div class="scd-panel">
-                <div class="scd-panel-title">Assigned Manager Staffing Volume</div>
+                <div class="scd-panel-title">Current Manager Staffing Volume</div>
                 ${managerStaffingTable(active)}
               </div>
               <div class="scd-panel">
                 <div class="scd-panel-title">Deliverable Mix</div>
                 ${rankedTable(active.byDeliverable, "Deliverable", 0, active.total)}
               </div>
+            </div>
+            <div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Sub-Region Staffing Volume</div>
+              ${subregionStaffingTable(active)}
             </div>
             ${isVerticalView || isAllVerticals ? `<div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Org Blend Readiness</div>
@@ -2371,7 +2380,7 @@
     let shownDirect = 0;
     let shownCross = 0;
     return simpleTable(
-      ["Assigned To Manager", "Volume", "% of Shown", "AMO", "Direct", "Cross Staffed", "% Cross Staffed"],
+      ["Current Manager", "Volume", "% of Shown", "AMO", "Direct", "Cross Staffed", "% Cross Staffed"],
       entries.map(([manager, volume]) => {
         const managerRows = summary.rows.filter((row) => normalizeText(row.manager) === normalizeText(manager));
         const amo = managerRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO").length;
@@ -2393,6 +2402,47 @@
       }),
       [
         { display: entries.length < summary.byManager.size ? "Shown Total" : "Total", value: "Total" },
+        { display: formatNumber(shownVolume), value: shownVolume },
+        { display: `${((shownVolume / total) * 100).toFixed(0)}%`, value: shownVolume / total },
+        { display: formatNumber(shownAmo), value: shownAmo },
+        { display: formatNumber(shownDirect), value: shownDirect },
+        { display: formatNumber(shownCross), value: shownCross },
+        { display: shownVolume ? `${((shownCross / shownVolume) * 100).toFixed(0)}%` : "0%", value: shownVolume ? shownCross / shownVolume : 0 }
+      ]
+    );
+  }
+
+  function subregionStaffingTable(summary) {
+    const entries = sortedEntries(summary.bySubregion).slice(0, 12);
+    if (!entries.length) return `<div class="scd-warning">No subregion data found. Confirm Subregion is included in the CSV export.</div>`;
+    const total = summary.total || 1;
+    let shownVolume = 0;
+    let shownAmo = 0;
+    let shownDirect = 0;
+    let shownCross = 0;
+    return simpleTable(
+      ["Subregion", "Volume", "% of Shown", "AMO", "Direct", "Cross Staffed", "% Cross Staffed"],
+      entries.map(([subregion, volume]) => {
+        const subregionRows = summary.rows.filter((row) => normalizeText(row.subregion) === normalizeText(subregion));
+        const amo = subregionRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO").length;
+        const direct = subregionRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "Direct").length;
+        const cross = subregionRows.filter(isCrossStaffedRow).length;
+        shownVolume += volume;
+        shownAmo += amo;
+        shownDirect += direct;
+        shownCross += cross;
+        return [
+          { display: subregion, value: subregion, drill: { subregion } },
+          { display: formatNumber(volume), value: volume, heat: true, drill: { subregion } },
+          { display: `${((volume / total) * 100).toFixed(0)}%`, value: volume / total, heat: true, drill: { subregion } },
+          { display: formatNumber(amo), value: amo, heat: true, drill: { subregion, salesTeam: "AMO" } },
+          { display: formatNumber(direct), value: direct, heat: true, drill: { subregion, salesTeam: "Direct" } },
+          { display: formatNumber(cross), value: cross, heat: true, drill: { subregion, crossStaffed: "true" } },
+          { display: volume ? `${((cross / volume) * 100).toFixed(0)}%` : "0%", value: volume ? cross / volume : 0, heat: true, drill: { subregion, crossStaffed: "true" } }
+        ];
+      }),
+      [
+        { display: entries.length < summary.bySubregion.size ? "Shown Total" : "Total", value: "Total" },
         { display: formatNumber(shownVolume), value: shownVolume },
         { display: `${((shownVolume / total) * 100).toFixed(0)}%`, value: shownVolume / total },
         { display: formatNumber(shownAmo), value: shownAmo },
@@ -3327,7 +3377,7 @@
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Subregion", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
@@ -3339,6 +3389,7 @@
         { display: scLabel(detailSummary, row.consultant), value: row.consultant, html: true, drill: { consultant: row.consultant } },
         row.legacyOrg,
         row.manager,
+        row.subregion,
         row.oml5,
         row.oml6,
         row.oml7,
@@ -3373,7 +3424,7 @@
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Subregion", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       <div class="scd-table-scroll">
@@ -3393,6 +3444,7 @@
                   row.opportunity,
                   { display: scLabel(detailSummary, row.consultant), value: row.consultant, html: true, drill: { consultant: row.consultant } },
                   row.manager,
+                  row.subregion,
                   row.oml5,
                   row.oml6,
                   row.oml7,
