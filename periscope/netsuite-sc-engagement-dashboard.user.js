@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.1
+// @version      2.13.2
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.1",
+    version: "2.13.2",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -62,6 +62,7 @@
       legacyOrg: ["Legacy Org", "Legacy Organization", "SC Legacy Org"],
       consultant: ["Solution Consultant", "SC", "Staffed SC"],
       leadSc: ["Lead SC", "Lead", "Assign as Lead SC", "Assign: Lead SC"],
+      shadow: ["Shadow", "Shadow SC", "Assign: Shadow"],
       manager: ["Current Manager", "Assigned To Manager", "Assigned to Manager", "Manager"],
       subregion: ["Subregion", "Sub Region", "Sub-Region", "SC Sub Region", "SC Sub-Region", "Sales Sub Region", "Sales Sub-Region"],
       deliverable: ["Deliverable", "Engagement Type"],
@@ -239,6 +240,14 @@
 
   function isLeadScValue(value) {
     return /^(yes|y|true|t|1)$/i.test(normalizeText(value));
+  }
+
+  function isShadowValue(value) {
+    return /^(yes|y|true|t|1)$/i.test(normalizeText(value));
+  }
+
+  function shadowLabel(row) {
+    return isShadowValue(row.shadow) ? "Shadow" : "Not Shadow";
   }
 
   function leadScLabel(row) {
@@ -483,6 +492,7 @@
     const legacyOrgIdx = findColumnIndex(headers, CONFIG.columnAliases.legacyOrg);
     const consultantIdx = findColumnIndex(headers, CONFIG.columnAliases.consultant);
     const leadScIdx = findColumnIndex(headers, CONFIG.columnAliases.leadSc);
+    const shadowIdx = findColumnIndex(headers, CONFIG.columnAliases.shadow);
     const managerIdx = findColumnIndex(headers, CONFIG.columnAliases.manager);
     const subregionIdx = findColumnIndex(headers, CONFIG.columnAliases.subregion);
     const deliverableIdx = findColumnIndex(headers, CONFIG.columnAliases.deliverable);
@@ -543,6 +553,7 @@
         legacyOrg: legacyOrgIdx >= 0 ? normalizeOrg(cells[legacyOrgIdx]) : "(legacy org missing)",
         consultant: cells[consultantIdx] || "(blank)",
         leadSc: leadScIdx >= 0 ? cells[leadScIdx] || "" : "",
+        shadow: shadowIdx >= 0 ? cells[shadowIdx] || "" : "",
         manager: managerIdx >= 0 ? cells[managerIdx] || "(blank)" : "(manager column missing)",
         subregion: subregionIdx >= 0 ? cells[subregionIdx] || "(blank)" : "(subregion column missing)",
         deliverable: deliverableIdx >= 0 ? cells[deliverableIdx] || "(blank)" : "(deliverable column missing)",
@@ -1902,6 +1913,7 @@
       opportunity: "",
       vertical: "all",
       forecastGrade: "all",
+      shadow: "all",
       startDate: "",
       endDate: ""
     };
@@ -1927,6 +1939,7 @@
         </label>
         ${filterSelectWithAttr("Vertical", "vertical", knownVerticalOptions(rows), filters.vertical, "data-scd-deal-lookup-filter")}
         ${filterSelectWithAttr("Forecast Grade", "forecastGrade", uniqueSorted(rows, "forecastGrade"), filters.forecastGrade, "data-scd-deal-lookup-filter")}
+        ${filterSelectWithAttr("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow, "data-scd-deal-lookup-filter")}
         <label>
           Begin
           <input type="date" data-scd-deal-lookup-filter="startDate" value="${escapeHtml(filters.startDate)}" ${minDate ? `min="${escapeHtml(minDate)}"` : ""} ${maxDate ? `max="${escapeHtml(maxDate)}"` : ""}>
@@ -1990,6 +2003,7 @@
         normalizeText(filters.opportunity) ||
         filters.vertical !== "all" ||
         filters.forecastGrade !== "all" ||
+        filters.shadow !== "all" ||
         filters.startDate ||
         filters.endDate
     );
@@ -2003,6 +2017,8 @@
       if (!containsText(row.opportunity, filters.opportunity)) return false;
       if (filters.vertical !== "all" && normalizeText(row.vertical) !== normalizeText(filters.vertical)) return false;
       if (filters.forecastGrade !== "all" && normalizeText(row.forecastGrade) !== normalizeText(filters.forecastGrade)) return false;
+      if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
+      if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
       if (filters.startDate && (!row.dateValue || row.dateValue < filters.startDate)) return false;
       if (filters.endDate && (!row.dateValue || row.dateValue > filters.endDate)) return false;
       return true;
@@ -2020,6 +2036,7 @@
       orgs: null,
       status: "all",
       leadSc: "all",
+      shadow: "all",
       crossStaffed: "all",
       includeValue: "No",
       startDate: "",
@@ -2037,6 +2054,7 @@
         ${multiFilterSelect("Org", "orgs", orgOptions, filters.orgs)}
         ${filterSelectWithAttr("Status", "status", uniqueSorted(rows, "status"), filters.status, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc, "data-scd-dashboard-filter")}
+        ${filterSelectWithAttr("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Cross Staffed", "crossStaffed", ["Cross Staffed Only", "Not Cross Staffed"], filters.crossStaffed, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Include Value", "includeValue", ["No", "Yes"], filters.includeValue, "data-scd-dashboard-filter")}
         <label>
@@ -2058,6 +2076,8 @@
       if (filters.status !== "all" && normalizeText(row.status) !== filters.status) return false;
       if (filters.leadSc === "Lead SC Only" && !isLeadScValue(row.leadSc)) return false;
       if (filters.leadSc === "Supporting SC Only" && isLeadScValue(row.leadSc)) return false;
+      if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
+      if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
       if (filters.crossStaffed === "Cross Staffed Only" && !isCrossStaffedRow(row)) return false;
       if (filters.crossStaffed === "Not Cross Staffed" && isCrossStaffedRow(row)) return false;
       if (filters.includeValue !== "Yes" && isValueManagementRow(row)) return false;
@@ -3119,6 +3139,7 @@
         if (key === "salesTeam") return normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg(value);
         if (key === "salesMotion") return salesMotionBucket(row) === value;
         if (key === "leadSc") return value === "true" ? isLeadScValue(row.leadSc) : !isLeadScValue(row.leadSc);
+        if (key === "shadow") return value === "true" ? isShadowValue(row.shadow) : !isShadowValue(row.shadow);
         if (key === "oppBucket") return opportunityBucket(row.oppStatus) === value;
         if (key === "deliverable") return deliverableLabel(row) === value;
         if (key === "crossStaffed") return value === "true" ? isCrossStaffedRow(row) : !isCrossStaffedRow(row);
@@ -3266,6 +3287,7 @@
     return {
       status: "all",
       leadSc: "all",
+      shadow: "all",
       month: "all",
       deliverable: "all",
       industry: "all",
@@ -3278,6 +3300,7 @@
       <div class="scd-filterbar">
         ${filterSelect("Status", "status", uniqueSorted(rows, "status"), filters.status)}
         ${filterSelect("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc)}
+        ${filterSelect("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow)}
         ${filterSelect("Date range", "month", sortedMonthKeys(rows.reduce((map, row) => {
           incrementMap(map, row.month || "(blank)");
           return map;
@@ -3366,6 +3389,8 @@
       if (filters.status !== "all" && normalizeText(row.status) !== filters.status) return false;
       if (filters.leadSc === "Lead SC Only" && !isLeadScValue(row.leadSc)) return false;
       if (filters.leadSc === "Supporting SC Only" && isLeadScValue(row.leadSc)) return false;
+      if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
+      if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
       if (filters.month !== "all" && normalizeText(row.month) !== filters.month) return false;
       if (filters.deliverable !== "all" && deliverableLabel(row) !== filters.deliverable) return false;
       if (filters.industry !== "all" && normalizeText(row.industry) !== filters.industry) return false;
@@ -3377,11 +3402,12 @@
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Subregion", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Shadow", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Subregion", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
         leadScCell(row),
+        shadowCell(row),
         row.company,
         { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
         { display: row.renewalRank, value: row.renewalRank, drill: { renewalRank: row.renewalRank } },
@@ -3424,7 +3450,7 @@
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Subregion", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Shadow", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Subregion", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       <div class="scd-table-scroll">
@@ -3438,6 +3464,7 @@
                   requestRecordLink(row.internalId),
                   gravityFlagCell(row),
                   leadScCell(row),
+                  shadowCell(row),
                   row.company,
                   { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
                   { display: row.renewalRank, value: row.renewalRank, drill: { renewalRank: row.renewalRank } },
@@ -3536,6 +3563,16 @@
       value: isLead ? 1 : 0,
       html: true,
       drill: { leadSc: isLead ? "true" : "false" }
+    };
+  }
+
+  function shadowCell(row) {
+    const isShadow = isShadowValue(row.shadow);
+    return {
+      display: `<span class="scd-badge ${isShadow ? "scd-badge-support" : "scd-badge-lead"}">${escapeHtml(isShadow ? "Shadow" : "Active")}</span>`,
+      value: isShadow ? 1 : 0,
+      html: true,
+      drill: { shadow: isShadow ? "true" : "false" }
     };
   }
 
