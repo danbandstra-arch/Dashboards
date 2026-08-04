@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.2
+// @version      2.13.3
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.2",
+    version: "2.13.3",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -1361,6 +1361,32 @@
         content: "  sort";
         font-size: 10px;
         font-weight: 400;
+      }
+      .scd-definitions {
+        border-bottom: 1px solid var(--rw-line);
+        background: rgba(255, 253, 250, 0.78);
+      }
+      .scd-definitions summary {
+        color: var(--rw-rust);
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 12px;
+        font-weight: 800;
+        padding: 9px 14px;
+      }
+      .scd-definition-grid {
+        display: grid;
+        gap: 8px 16px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        padding: 0 14px 12px;
+      }
+      .scd-definition-item {
+        color: var(--rw-slate);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .scd-definition-item strong {
+        color: var(--rw-ink-deep);
       }
       .scd-notes-row td {
         background: #fbfaf8;
@@ -3007,6 +3033,7 @@
       };
     });
     return `
+      ${definitionsBlock(headers)}
       <div class="scd-table-scroll">
         <table class="scd-table" data-scd-sortable>
           <thead><tr>${headers.map((header, idx) => `<th data-scd-sort="${idx}">${escapeHtml(header)}</th>`).join("")}</tr></thead>
@@ -3019,6 +3046,111 @@
         </table>
       </div>
     `;
+  }
+
+  function definitionsBlock(headers) {
+    const definitions = headers.map((header) => ({ header, definition: columnDefinition(header) })).filter((item) => item.definition);
+    if (!definitions.length) return "";
+    return `
+      <details class="scd-definitions">
+        <summary>Definitions</summary>
+        <div class="scd-definition-grid">
+          ${definitions.map((item) => `
+            <div class="scd-definition-item">
+              <strong>${escapeHtml(item.header)}:</strong> ${escapeHtml(item.definition)}
+            </div>
+          `).join("")}
+        </div>
+      </details>
+    `;
+  }
+
+  function columnDefinition(header) {
+    const key = normalizeText(header).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const definitions = {
+      id: "Internal NetSuite SC Request record ID. Click to open the SCR record.",
+      flag: "Highlights special attention signals, currently #gravity requests.",
+      leadsc: "Shows whether this staffed SC is the lead SC or a supporting SC.",
+      shadow: "Shows whether the SC is shadowing the request instead of actively staffing it.",
+      company: "Customer or prospect tied to the SC Request.",
+      vrank: "Customer VRank value from the saved search.",
+      renewalrank: "Renewal ranking value from the saved search.",
+      opportunity: "Opportunity tied to the SC Request.",
+      sc: "Solution Consultant staffed on the request. Badge shows their Legacy Org when available.",
+      legacyorg: "The org the SC came from before the team blend, usually AMO or Direct.",
+      manager: "Current Manager for the staffed SC.",
+      currentmanager: "Current Manager for the staffed SC.",
+      subregion: "Subregion from the saved search.",
+      scvp: "SC VP hierarchy value from OML5.",
+      scsrdir: "SC Senior Director hierarchy value from OML6.",
+      scdirector: "SC Director hierarchy value from OML7.",
+      team: "Derived PERI.SCOPE team grouping, such as Team Terra, Team Nautiq, or Team Value.",
+      salesteam: "Sales org or motion requesting the work, such as AMO or Direct.",
+      salesvertical: "Sales-side vertical/industry asking for the request.",
+      salesgvp: "Sales GVP from the saved search.",
+      salesavp: "Sales AVP from the saved search.",
+      salesvp: "Sales VP/VL from the saved search.",
+      industryfamily: "SC-side vertical or industry family owning the staffed SC.",
+      companyindustry: "Customer/prospect industry from the saved search.",
+      industrysubgroup: "More specific child industry grouping under Company Industry.",
+      requesttype: "Request Type from NetSuite, normalized into AMO, Direct, Channel, Value, SCAI, or TCOE where applicable.",
+      deliverable: "Engagement deliverable type. Blank AMO/Direct deliverables are labeled so missing values still count.",
+      oppstatus: "Opportunity status. CLOSE is treated as open, not won.",
+      forecastgrade: "Forecast grade/category from the saved search.",
+      scstatus: "SC engagement status from the saved search.",
+      status: "SC engagement status from the saved search.",
+      probability: "Opportunity probability percentage from the saved search.",
+      arrcommit: "ARR Commit value from the saved search.",
+      mgrcommit: "Manager Commit value from the saved search.",
+      vlcommit: "VL/VP Commit value from the saved search.",
+      pipelinerev: "Open opportunity revenue. Uses GASA Total when available, otherwise ASA Total.",
+      closedrev: "Won opportunity revenue only. Lost and open opportunities are excluded.",
+      revenue: "Total opportunity value on the SCR. Uses GASA Total when available, otherwise ASA Total.",
+      weightedrev: "Probability-adjusted revenue. Open revenue is multiplied by probability, won revenue counts at 100%, and lost revenue counts as $0.",
+      avgrevreq: "Revenue divided by request count.",
+      winrate: "Won opportunities divided by won plus lost opportunities. Open opportunities are excluded.",
+      won: "Count of requests tied to won opportunities.",
+      open: "Count of requests tied to open opportunities, including CLOSE.",
+      lost: "Count of requests tied to lost opportunities.",
+      salesrep: "Sales rep tied to the opportunity/request.",
+      salesmanager: "Front-line Sales Manager tied to the sales rep.",
+      scmhashtags: "SCM hashtag field from NetSuite, used for #gravity tracking.",
+      month: "Month bucket derived from the request date.",
+      volume: "Count of SC Requests in the current view/filter context.",
+      volmo: "Volume per month across the selected dataset date range.",
+      directvolume: "Count of requests from the Direct sales org.",
+      directmo: "Direct request volume per month across the selected dataset date range.",
+      amovolume: "Count of requests from the AMO sales org.",
+      amomo: "AMO request volume per month across the selected dataset date range.",
+      uniquescs: "Distinct staffed Solution Consultants in the current row/context.",
+      avgsc: "Average request volume per unique staffed SC.",
+      staffing: "Share of total staffing volume represented by this row.",
+      request: "Count of SC Requests in the current view/filter context.",
+      requests: "Count of SC Requests in the current view/filter context.",
+      ofshown: "This row's share of the rows currently shown in the portlet.",
+      amo: "Count of requests from the AMO sales org.",
+      direct: "Count of requests from the Direct sales org.",
+      crossstaffed: "Requests where the SC-side vertical differs from the Sales Vertical requesting the work.",
+      crossstaffedpercent: "Cross-staffed requests divided by total requests for the row.",
+      notes: "Number of populated notes fields available beneath the deal lookup row."
+    };
+    const moreDefinitions = {
+      total: "Total request volume in the current row/context.",
+      blendvol: "Opposite legacy org volume. For Legacy Direct SCs this is AMO work; for Legacy AMO SCs this is Direct work.",
+      blendmo: "Blend volume per month across the selected dataset date range.",
+      weightedblend: "Blend volume with Direct work weighted higher than AMO work because Direct engagements are typically larger and longer.",
+      weightedmo: "Weighted blend score per month across the selected dataset date range.",
+      blend: "Blend volume divided by total volume for the row.",
+      momchange: "Month-over-month percentage change versus the prior month shown.",
+      customers: "Distinct customer/prospect count in the current row/context.",
+      reqcustomer: "Requests divided by distinct customers.",
+      customerspercent: "Share of distinct customers represented by this row.",
+      salesindustry: "Sales-side industry or vertical tied to the request.",
+      gravityrequests: "Count of requests flagged with #gravity in SCM Hashtags.",
+      gravitypercent: "Share of #gravity requests represented by this row.",
+      forecastgrade: "Forecast grade/category from the saved search."
+    };
+    return definitions[key] || moreDefinitions[key] || "Saved-search field or calculated dashboard value shown for this portlet.";
   }
 
   function tableCell(cell, heatRange) {
@@ -3453,6 +3585,7 @@
     const headers = ["ID", "Flag", "Lead SC", "Shadow", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Subregion", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
+      ${definitionsBlock(headers)}
       <div class="scd-table-scroll">
         <table class="scd-table">
           <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
