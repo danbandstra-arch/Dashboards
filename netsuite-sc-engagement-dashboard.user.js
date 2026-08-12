@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.9.0
+// @version      2.13.4
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
+// @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
+// @downloadURL  https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
 // @match        https://*.app.netsuite.com/*/app/common/search/searchresults.nl*
 // @match        https://*.app.netsuite.com/app/common/search/searchresults.nl*
 // @match        https://*.app.netsuite.com/*/app/common/search/savedsearchresults.nl*
@@ -18,14 +20,19 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
+    version: "2.13.4",
+    updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
+    fiscalStartMonth: 6,
+    fiscalStartDay: 1,
     targetSearchIds: ["1329329", "1328598"],
     targetTitles: [
+      "SCM.PERISCOPE",
       "DAB- FY27 Raw SC Engagement Data for Dashboard Codex",
       "RTR - FY27 Raw SC Engagement Data for Codex"
     ],
-    alwaysShowLauncherOnNetSuite: true,
+    alwaysShowLauncherOnNetSuite: false,
     autoOpenDashboard: false,
-    preferCsvExport: true,
+    preferCsvExport: false,
     exportSize: "50000",
     // Adjust this to your current org taxonomy. Any extra verticals found in
     // the saved search are still shown after this preferred order.
@@ -33,36 +40,67 @@
       "Products",
       "Consumer Services",
       "Business Services",
+      "Software",
+      "High Tech",
+      "Health & Hospitality",
       "Health Hospitality",
       "Health  Hospitality",
+      "Construction & Energy",
       "Construction Energy",
       "Construction  Energy",
-      "Software",
-      "High Tech"
+      "PBCS",
+      "TCOE",
+      "Wholesale/Distribution"
     ],
     columnAliases: {
-      vertical: ["SC Vertical", "Industry Family"],
+      vertical: ["SC Vertical", "Assign: Assigned To (Roster) : Sales Vertical", "Assigned To (Roster) : Sales Vertical", "Vertical (Employee)", "Industry Family", "Vertical"],
       salesVertical: ["Sales Vertical", "Industry Group", "Sales Industry Group"],
-      industry: ["Company Industry", "Industry", "Sub Industry", "Sub-Industry"],
+      industry: ["Company Industry", "Customer Industry", "Industry"],
+      industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Sub Industry", "Sub-Industry", "Company Industry Subgroup", "Company Industry Sub Group"],
       requestType: ["Request Type"],
       salesTeam: ["Sales Team", "Sales Org", "Sales Organization"],
       legacyOrg: ["Legacy Org", "Legacy Organization", "SC Legacy Org"],
       consultant: ["Solution Consultant", "SC", "Staffed SC"],
       leadSc: ["Lead SC", "Lead", "Assign as Lead SC", "Assign: Lead SC"],
-      manager: ["Assigned To Manager", "Assigned to Manager", "Manager"],
+      shadow: ["Shadow", "Shadow SC", "Assign: Shadow"],
+      manager: ["Current Manager", "Assigned To Manager", "Assigned to Manager", "Manager"],
+      teamManager: ["Team Manager", "Team Mgr", "SC Team Manager"],
+      subregion: ["Subregion", "Sub Region", "Sub-Region", "SC Sub Region", "SC Sub-Region", "Sales Sub Region", "Sales Sub-Region"],
       deliverable: ["Deliverable", "Engagement Type"],
       date: ["Date Created", "Created Date", "Date Needed", "Exp Close"],
+      oml5: ["OML5", "OM L5", "L5", "OML 5"],
       oml6: ["OML6", "OM L6", "L6", "OML 6"],
+      oml7: ["OML7", "OM L7", "L7", "OML 7"],
       internalId: ["Internal ID", "ID"],
       company: ["Company", "Customer"],
+      vrank: ["VRank", "V Rank", "VRANK", "V-Rank"],
+      renewalRank: ["Renewal Ranking", "Renewal Rank", "Renewal Ranking Grade", "Renewal Grade"],
       opportunity: ["Opportunity", "Opp"],
       oppStatus: ["Opp Status", "Opportunity Status"],
+      forecastGrade: ["Forecast Grade", "Forecast", "Forecast Category"],
       status: ["SC Status", "Status"],
       asaTotal: ["ASA Total", "ASA"],
       gasaTotal: ["GASA Total", "GASA"],
+      arrCommit: ["ARR Commit", "ARR", "Opportunity ARR Commit", "Opp: ARR Commit", "Opp ARR Commit"],
+      mgrCommit: ["MGR Commit", "Manager Commit", "Mgr Commit", "Opp: MGR Commit", "Opp MGR Commit"],
+      vlCommit: ["VL Commit", "VP Commit", "Sales VP Commit", "Opp: VL Commit", "Opp VL Commit"],
       probability: ["Probability %", "Probability", "Prob %"],
       salesRep: ["Sales Rep", "Sales Representative"],
-      hashtags: ["SCM Hashtags", "Hashtags", "Hash Tags", "SC Hashtags"]
+      salesManager: ["Sales Manager", "Sales Rep Manager", "Rep Manager", "Front Line Manager"],
+      salesGvp: ["Sales GVP", "GVP"],
+      salesAvp: ["Sales AVP", "AVP"],
+      salesVp: ["Sales VP", "Sales VL", "VL"],
+      hashtags: ["SCM Hashtags", "Hashtags", "Hash Tags", "SC Hashtags"],
+      engagementNotes: ["Engagement Notes", "Engagement: Notes", "Notes"],
+      directRepNotes: ["Direct Rep Notes"],
+      amoRepNotes: ["AMO Rep Notes"],
+      rmSummary: ["RM Summary"],
+      bant: ["BANT"],
+      meddicc: ["MEDDICC"],
+      meddiccQualified: ["MEDDICC Qualified"],
+      scManagerNotes: ["SC Manager Notes"],
+      scManagerNotes2: ["SC Manager Notes 2"],
+      scManagerNotes3: ["SC Manager Notes 3"]
     }
   };
 
@@ -75,7 +113,13 @@
   function isTargetSavedSearch() {
     const currentSearchId = new URLSearchParams(window.location.search).get("searchid");
     const searchIdMatches = CONFIG.targetSearchIds.includes(currentSearchId);
-    const pageText = normalizeText(document.title + " " + (document.body?.innerText || ""));
+    const pageTitle = [
+      document.title,
+      document.querySelector("h1")?.innerText,
+      document.querySelector(".uir-page-title")?.innerText,
+      document.querySelector(".uir-record-name")?.innerText
+    ].join(" ");
+    const pageText = normalizeText(pageTitle);
     const titleMatches = CONFIG.targetTitles.some((title) => pageText.includes(title));
     return searchIdMatches || titleMatches;
   }
@@ -85,6 +129,10 @@
     return currentSearchId || CONFIG.targetSearchIds[0];
   }
 
+  function versionLabel() {
+    return `v${CONFIG.version}`;
+  }
+
   function normalizeText(value) {
     return String(value || "")
       .replace(/\s+/g, " ")
@@ -92,15 +140,79 @@
   }
 
   function displayVertical(value) {
-    return normalizeText(value).replace("Health Hospitality", "Health Hospitality").replace("Construction Energy", "Construction Energy");
+    return normalizeText(value)
+      .replace(/^Health\s+Hospitality$/i, "Health & Hospitality")
+      .replace(/^Construction\s+Energy$/i, "Construction & Energy");
+  }
+
+  function verticalKey(value) {
+    return normalizeText(displayVertical(value)).toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  function isKnownVertical(value) {
+    const key = verticalKey(value);
+    if (!key) return false;
+    return CONFIG.preferredVerticalOrder.some((vertical) => verticalKey(vertical) === key);
+  }
+
+  function cleanVerticalValue(primaryValue, fallbackValue = "") {
+    const primary = displayVertical(primaryValue);
+    if (isKnownVertical(primary)) return primary;
+    const fallback = displayVertical(fallbackValue);
+    if (isKnownVertical(fallback)) return fallback;
+    return "(vertical unmapped)";
+  }
+
+  function inferIndustryFamily(companyIndustry) {
+    const key = normalizeText(companyIndustry).toLowerCase().replace(/&/g, "and");
+    if (!key || key.startsWith("(")) return "(vertical unmapped)";
+
+    const familyMap = new Map([
+      ["software", "Software"],
+      ["consulting", "Business Services"],
+      ["advertising, media and publishing", "Business Services"],
+      ["advertising media and publishing", "Business Services"],
+      ["transportation", "Business Services"],
+      ["business services", "Business Services"],
+      ["financial services", "Consumer Services"],
+      ["nonprofits and organizations", "Consumer Services"],
+      ["consumer services", "Consumer Services"],
+      ["consumer goods", "Products"],
+      ["industrial and equipment", "Products"],
+      ["food and beverage", "Products"],
+      ["health", "Health & Hospitality"],
+      ["life sciences", "Health & Hospitality"],
+      ["hospitality", "Health & Hospitality"],
+      ["public sector", "Health & Hospitality"],
+      ["construction and energy", "Construction & Energy"]
+    ]);
+
+    return familyMap.get(key) || "(vertical unmapped)";
+  }
+
+  function resolveVerticalFromCells(cells, verticalIdx) {
+    const vertical = verticalIdx >= 0 ? cells[verticalIdx] || "" : "";
+    const cleaned = cleanVerticalValue(vertical);
+    if (isKnownVertical(cleaned)) return cleaned;
+    return "(vertical unmapped)";
   }
 
   function isValueManagementText(value) {
     return /value\s*management/i.test(normalizeText(value));
   }
 
+  function isTcoeText(value) {
+    return /(^|\s)(tcoe|technology\s*coe|technology\s+center\s+of\s+excellence)(\s|$)/i.test(normalizeText(value));
+  }
+
+  function isScaiText(value) {
+    return /(^|\s)(scai|scai\s*support|ai\s*support)(\s|$)/i.test(normalizeText(value));
+  }
+
   function deriveTeam(oml6Value, requestType = "", deliverable = "") {
     if (isValueManagementText(requestType) || isValueManagementText(deliverable)) return "Team Value";
+    if (isTcoeText(requestType) || isTcoeText(deliverable)) return "Team TCOE";
+    if (isScaiText(requestType) || isScaiText(deliverable)) return "Team SCAI";
     const value = normalizeText(oml6Value).toLowerCase();
     if (value.includes("bandstra")) return "Team Nautiq";
     if (value.includes("ransom")) return "Team Terra";
@@ -109,6 +221,14 @@
 
   function isValueManagementRow(row) {
     return row.team === "Team Value" || isValueManagementText(row.requestType) || isValueManagementText(row.deliverable);
+  }
+
+  function isTcoeRow(row) {
+    return row.team === "Team TCOE" || isTcoeText(row.requestType) || isTcoeText(row.deliverable);
+  }
+
+  function isScaiRow(row) {
+    return row.team === "Team SCAI" || isScaiText(row.requestType) || isScaiText(row.deliverable);
   }
 
   function isGravityText(value) {
@@ -121,6 +241,14 @@
 
   function isLeadScValue(value) {
     return /^(yes|y|true|t|1)$/i.test(normalizeText(value));
+  }
+
+  function isShadowValue(value) {
+    return /^(yes|y|true|t|1)$/i.test(normalizeText(value));
+  }
+
+  function shadowLabel(row) {
+    return isShadowValue(row.shadow) ? "Shadow" : "Not Shadow";
   }
 
   function leadScLabel(row) {
@@ -179,6 +307,18 @@
     return opportunityBucket(row.oppStatus) === "Won" ? rowRevenue(row) : 0;
   }
 
+  function arrCommit(row) {
+    return row.arrCommit || 0;
+  }
+
+  function mgrCommit(row) {
+    return row.mgrCommit || 0;
+  }
+
+  function vlCommit(row) {
+    return row.vlCommit || 0;
+  }
+
   function sumRows(rows, getter) {
     return rows.reduce((sum, row) => sum + getter(row), 0);
   }
@@ -228,7 +368,7 @@
         const score = scoreHeaders(headers);
         return { table, headers, score };
       })
-      .filter((candidate) => candidate.score >= 2)
+      .filter((candidate) => hasCoreHeaders(candidate.headers))
       .sort((a, b) => b.score - a.score);
 
     return candidates[0] || null;
@@ -255,23 +395,85 @@
     return score;
   }
 
-  function findColumnIndex(headers, aliases) {
+  function hasCoreHeaders(headers) {
+    const hasVerticalSource = findVerticalHeaderIndex(headers) >= 0;
+    return (
+      hasVerticalSource &&
+      findColumnIndex(headers, CONFIG.columnAliases.requestType) >= 0 &&
+      findColumnIndex(headers, CONFIG.columnAliases.consultant) >= 0
+    );
+  }
+
+  function isExactSalesVerticalHeader(header) {
+    return ["salesvertical", "industrygroup", "salesindustrygroup"].includes(headerKey(header));
+  }
+
+  function findColumnIndex(headers, aliases, excludedIndexes = []) {
+    const excluded = new Set(excludedIndexes.filter((idx) => idx >= 0));
     const keyed = headers.map((header) => headerKey(header));
     for (const alias of aliases) {
       const aliasKey = headerKey(alias);
-      const idx = keyed.indexOf(aliasKey);
+      const idx = keyed.findIndex((header, headerIdx) => !excluded.has(headerIdx) && header === aliasKey);
       if (idx !== -1) return idx;
     }
     for (const alias of aliases) {
       const aliasKey = headerKey(alias);
-      const idx = keyed.findIndex((header) => {
+      const idx = keyed.findIndex((header, headerIdx) => {
+        if (excluded.has(headerIdx)) return false;
         if (!header || !aliasKey) return false;
         if (aliasKey === "industry" && header === "industryfamily") return false;
+        if (aliasKey === "industry" && /subgroup|subindustry/.test(header)) return false;
         return header.includes(aliasKey) || aliasKey.includes(header);
       });
       if (idx !== -1) return idx;
     }
     return -1;
+  }
+
+  function findVerticalHeaderIndex(headers) {
+    return findVerticalColumnIndex(headers, [], { requireValues: false });
+  }
+
+  function findVerticalColumnIndex(headers, cellsRows = [], options = {}) {
+    const requireValues = options.requireValues !== false;
+    const keyed = headers.map((header) => headerKey(header));
+    const candidates = keyed
+      .map((key, idx) => ({ key, idx }))
+      .filter(({ key }) => {
+        if (!key) return false;
+        if (key === "salesvertical" || key === "salesindustrygroup" || key === "industrygroup") return false;
+        return (
+          key === "scvertical" ||
+          key === "industryfamily" ||
+          key === "verticalemployee" ||
+          key === "assignassignedtorostersalesvertical" ||
+          key === "assignedtorostersalesvertical" ||
+          key === "vertical"
+        );
+      })
+      .map((candidate) => {
+        const knownCount = cellsRows.reduce((count, cells) => count + (isKnownVertical(cells[candidate.idx]) ? 1 : 0), 0);
+        const nonBlankCount = cellsRows.reduce((count, cells) => count + (normalizeText(cells[candidate.idx]) ? 1 : 0), 0);
+        const priority = verticalHeaderPriority(candidate.key);
+        return { ...candidate, knownCount, nonBlankCount, priority };
+      })
+      .sort((a, b) => b.knownCount - a.knownCount || b.nonBlankCount - a.nonBlankCount || a.priority - b.priority || a.idx - b.idx);
+    const best = candidates[0];
+    if (!best) return -1;
+    if (requireValues && cellsRows.length && best.knownCount === 0) return -1;
+    return best.idx;
+  }
+
+  function verticalHeaderPriority(key) {
+    const priorities = new Map([
+      ["scvertical", 1],
+      ["assignassignedtorostersalesvertical", 2],
+      ["assignedtorostersalesvertical", 3],
+      ["verticalemployee", 4],
+      ["industryfamily", 5],
+      ["vertical", 6]
+    ]);
+    return priorities.get(key) || 99;
   }
 
   function headerKey(value) {
@@ -281,61 +483,122 @@
   }
 
   function rowsFromCells(cellsRows, headers) {
-    const verticalIdx = findColumnIndex(headers, CONFIG.columnAliases.vertical);
+    const verticalHeaderIdx = findVerticalHeaderIndex(headers);
+    const verticalIdx = findVerticalColumnIndex(headers, cellsRows);
     const salesVerticalIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVertical);
-    const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry);
+    const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
+    const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry, [industrySubgroupIdx]);
     const requestTypeIdx = findColumnIndex(headers, CONFIG.columnAliases.requestType);
     const salesTeamIdx = findColumnIndex(headers, CONFIG.columnAliases.salesTeam);
     const legacyOrgIdx = findColumnIndex(headers, CONFIG.columnAliases.legacyOrg);
     const consultantIdx = findColumnIndex(headers, CONFIG.columnAliases.consultant);
     const leadScIdx = findColumnIndex(headers, CONFIG.columnAliases.leadSc);
+    const shadowIdx = findColumnIndex(headers, CONFIG.columnAliases.shadow);
     const managerIdx = findColumnIndex(headers, CONFIG.columnAliases.manager);
+    const teamManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.teamManager);
+    const subregionIdx = findColumnIndex(headers, CONFIG.columnAliases.subregion);
     const deliverableIdx = findColumnIndex(headers, CONFIG.columnAliases.deliverable);
     const dateIdx = findColumnIndex(headers, CONFIG.columnAliases.date);
+    const oml5Idx = findColumnIndex(headers, CONFIG.columnAliases.oml5);
     const oml6Idx = findColumnIndex(headers, CONFIG.columnAliases.oml6);
+    const oml7Idx = findColumnIndex(headers, CONFIG.columnAliases.oml7);
     const internalIdIdx = findColumnIndex(headers, CONFIG.columnAliases.internalId);
     const companyIdx = findColumnIndex(headers, CONFIG.columnAliases.company);
+    const vrankIdx = findColumnIndex(headers, CONFIG.columnAliases.vrank);
+    const renewalRankIdx = findColumnIndex(headers, CONFIG.columnAliases.renewalRank);
     const opportunityIdx = findColumnIndex(headers, CONFIG.columnAliases.opportunity);
     const oppStatusIdx = findColumnIndex(headers, CONFIG.columnAliases.oppStatus);
+    const forecastGradeIdx = findColumnIndex(headers, CONFIG.columnAliases.forecastGrade);
     const statusIdx = findColumnIndex(headers, CONFIG.columnAliases.status);
     const asaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.asaTotal);
     const gasaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.gasaTotal);
+    const arrCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.arrCommit);
+    const mgrCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.mgrCommit);
+    const vlCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.vlCommit);
     const probabilityIdx = findColumnIndex(headers, CONFIG.columnAliases.probability);
     const salesRepIdx = findColumnIndex(headers, CONFIG.columnAliases.salesRep);
+    const salesManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.salesManager);
+    const salesGvpIdx = findColumnIndex(headers, CONFIG.columnAliases.salesGvp);
+    const salesAvpIdx = findColumnIndex(headers, CONFIG.columnAliases.salesAvp);
+    const salesVpIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVp);
     const hashtagsIdx = findColumnIndex(headers, CONFIG.columnAliases.hashtags);
+    const engagementNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.engagementNotes);
+    const directRepNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.directRepNotes);
+    const amoRepNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.amoRepNotes);
+    const rmSummaryIdx = findColumnIndex(headers, CONFIG.columnAliases.rmSummary);
+    const bantIdx = findColumnIndex(headers, CONFIG.columnAliases.bant);
+    const meddiccIdx = findColumnIndex(headers, CONFIG.columnAliases.meddicc);
+    const meddiccQualifiedIdx = findColumnIndex(headers, CONFIG.columnAliases.meddiccQualified);
+    const scManagerNotesIdx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes);
+    const scManagerNotes2Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes2);
+    const scManagerNotes3Idx = findColumnIndex(headers, CONFIG.columnAliases.scManagerNotes3);
+    const hasSalesVerticalSource = salesVerticalIdx >= 0 && isExactSalesVerticalHeader(headers[salesVerticalIdx]);
 
-    if (verticalIdx < 0 || requestTypeIdx < 0 || consultantIdx < 0) {
-      return { rows: [], error: "Missing one or more required columns: SC Vertical, Request Type, Solution Consultant." };
+    if (verticalHeaderIdx < 0 || requestTypeIdx < 0 || consultantIdx < 0) {
+      return { rows: [], error: "Missing one or more required columns: SC Vertical/Vertical (Employee), Request Type, Solution Consultant. Industry tabs require an SC-side vertical field and will not be inferred from Company Industry." };
+    }
+    if (verticalIdx < 0) {
+      return { rows: [], error: "The export includes an SC-side vertical column, but it is blank or does not contain recognized verticals. Populate SC Vertical or Vertical (Employee) in the saved search so Products, Business Services, Software, and other industry tabs show the correct SCs." };
     }
 
     const rows = cellsRows
-      .filter((cells) => cells.length >= Math.max(verticalIdx, requestTypeIdx, consultantIdx) + 1)
+      .filter((cells) => cells.length >= Math.max(verticalIdx, industryIdx, requestTypeIdx, consultantIdx) + 1)
       .map((cells) => ({
-        vertical: displayVertical(cells[verticalIdx] || "(blank)"),
-        salesVertical: salesVerticalIdx >= 0 ? displayVertical(cells[salesVerticalIdx] || "(blank)") : displayVertical(cells[verticalIdx] || "(blank)"),
+        vertical: resolveVerticalFromCells(cells, verticalIdx),
+        salesVertical: hasSalesVerticalSource ? cleanVerticalValue(cells[salesVerticalIdx] || "") : "(sales vertical missing)",
+        salesVerticalRaw: hasSalesVerticalSource ? cells[salesVerticalIdx] || "" : "",
+        salesVerticalSource: hasSalesVerticalSource,
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
+        industrySubgroup: industrySubgroupIdx >= 0 ? cells[industrySubgroupIdx] || "(blank)" : "(industry subgroup column missing)",
         requestType: cells[requestTypeIdx] || "(blank)",
         salesTeam: salesTeamIdx >= 0 ? normalizeOrg(cells[salesTeamIdx]) : normalizeOrg(cells[requestTypeIdx]),
         legacyOrg: legacyOrgIdx >= 0 ? normalizeOrg(cells[legacyOrgIdx]) : "(legacy org missing)",
         consultant: cells[consultantIdx] || "(blank)",
         leadSc: leadScIdx >= 0 ? cells[leadScIdx] || "" : "",
+        shadow: shadowIdx >= 0 ? cells[shadowIdx] || "" : "",
         manager: managerIdx >= 0 ? cells[managerIdx] || "(blank)" : "(manager column missing)",
+        teamManager: teamManagerIdx >= 0 ? cells[teamManagerIdx] || "(blank)" : "(team manager column missing)",
+        subregion: subregionIdx >= 0 ? cells[subregionIdx] || "(blank)" : "(subregion column missing)",
         deliverable: deliverableIdx >= 0 ? cells[deliverableIdx] || "(blank)" : "(deliverable column missing)",
+        oml5: oml5Idx >= 0 ? cells[oml5Idx] || "" : "",
         oml6: oml6Idx >= 0 ? cells[oml6Idx] || "" : "",
+        oml7: oml7Idx >= 0 ? cells[oml7Idx] || "" : "",
         team: deriveTeam(oml6Idx >= 0 ? cells[oml6Idx] || "" : "", cells[requestTypeIdx] || "", deliverableIdx >= 0 ? cells[deliverableIdx] || "" : ""),
         date: dateIdx >= 0 ? cells[dateIdx] || "" : "",
         dateValue: dateIdx >= 0 ? dateInputValue(cells[dateIdx]) : "",
         month: dateIdx >= 0 ? monthKey(cells[dateIdx]) : "(date column missing)",
         internalId: internalIdIdx >= 0 ? cells[internalIdIdx] || "" : "",
         company: companyIdx >= 0 ? cells[companyIdx] || "" : "",
+        vrank: vrankIdx >= 0 ? cells[vrankIdx] || "(blank)" : "(vrank column missing)",
+        renewalRank: renewalRankIdx >= 0 ? cells[renewalRankIdx] || "(blank)" : "(renewal rank column missing)",
         opportunity: opportunityIdx >= 0 ? cells[opportunityIdx] || "" : "",
         oppStatus: oppStatusIdx >= 0 ? cells[oppStatusIdx] || "" : "",
+        forecastGrade: forecastGradeIdx >= 0 ? cells[forecastGradeIdx] || "" : "",
         status: statusIdx >= 0 ? cells[statusIdx] || "" : "",
         asaTotal: asaTotalIdx >= 0 ? parseMoney(cells[asaTotalIdx]) : 0,
         gasaTotal: gasaTotalIdx >= 0 ? parseMoney(cells[gasaTotalIdx]) : 0,
+        arrCommit: arrCommitIdx >= 0 ? parseMoney(cells[arrCommitIdx]) : 0,
+        mgrCommit: mgrCommitIdx >= 0 ? parseMoney(cells[mgrCommitIdx]) : 0,
+        vlCommit: vlCommitIdx >= 0 ? parseMoney(cells[vlCommitIdx]) : 0,
         probability: probabilityIdx >= 0 ? parseProbability(cells[probabilityIdx]) : null,
         salesRep: salesRepIdx >= 0 ? cells[salesRepIdx] || "" : "",
-        hashtags: hashtagsIdx >= 0 ? cells[hashtagsIdx] || "" : ""
+        salesManager: salesManagerIdx >= 0 ? cells[salesManagerIdx] || "" : "",
+        salesGvp: salesGvpIdx >= 0 ? cells[salesGvpIdx] || "" : "",
+        salesAvp: salesAvpIdx >= 0 ? cells[salesAvpIdx] || "" : "",
+        salesVp: salesVpIdx >= 0 ? cells[salesVpIdx] || "" : "",
+        hashtags: hashtagsIdx >= 0 ? cells[hashtagsIdx] || "" : "",
+        notes: {
+          engagementNotes: engagementNotesIdx >= 0 ? cells[engagementNotesIdx] || "" : "",
+          directRepNotes: directRepNotesIdx >= 0 ? cells[directRepNotesIdx] || "" : "",
+          amoRepNotes: amoRepNotesIdx >= 0 ? cells[amoRepNotesIdx] || "" : "",
+          rmSummary: rmSummaryIdx >= 0 ? cells[rmSummaryIdx] || "" : "",
+          bant: bantIdx >= 0 ? cells[bantIdx] || "" : "",
+          meddicc: meddiccIdx >= 0 ? cells[meddiccIdx] || "" : "",
+          meddiccQualified: meddiccQualifiedIdx >= 0 ? cells[meddiccQualifiedIdx] || "" : "",
+          scManagerNotes: scManagerNotesIdx >= 0 ? cells[scManagerNotesIdx] || "" : "",
+          scManagerNotes2: scManagerNotes2Idx >= 0 ? cells[scManagerNotes2Idx] || "" : "",
+          scManagerNotes3: scManagerNotes3Idx >= 0 ? cells[scManagerNotes3Idx] || "" : ""
+        }
       }))
       .filter((row) => row.vertical !== "(blank)" || row.requestType !== "(blank)" || row.consultant !== "(blank)");
 
@@ -390,9 +653,9 @@
 
   function readRowsFromCsv(text) {
     const csvRows = parseCsv(text).map((row) => row.map(normalizeText));
-    const headerIndex = csvRows.findIndex((row) => scoreHeaders(row) >= 2);
+    const headerIndex = csvRows.findIndex((row) => hasCoreHeaders(row));
     if (headerIndex === -1) {
-      return { rows: [], error: "CSV export downloaded, but required headers were not found." };
+      return { rows: [], error: "The selected/exported CSV did not include the required saved-search headers. Export the saved-search results CSV, then load that file." };
     }
     const headers = csvRows[headerIndex];
     return rowsFromCells(csvRows.slice(headerIndex + 1), headers);
@@ -405,7 +668,7 @@
       const matrix = Array.from(table.querySelectorAll("tr")).map((tr) =>
         Array.from(tr.children).map((cell) => normalizeText(cell.textContent))
       );
-      const headerIndex = matrix.findIndex((row) => scoreHeaders(row) >= 2);
+      const headerIndex = matrix.findIndex((row) => hasCoreHeaders(row));
       if (headerIndex !== -1) {
         return rowsFromCells(matrix.slice(headerIndex + 1), matrix[headerIndex]);
       }
@@ -431,9 +694,9 @@
       });
       return output;
     });
-    const headerIndex = matrix.findIndex((row) => scoreHeaders(row) >= 2);
+    const headerIndex = matrix.findIndex((row) => hasCoreHeaders(row));
     if (headerIndex === -1) {
-      return { rows: [], error: "Spreadsheet XML export downloaded, but required headers were not found." };
+      return { rows: [], error: "The selected/exported spreadsheet did not include the required saved-search headers. Export the saved-search results CSV, then load that file." };
     }
     return rowsFromCells(matrix.slice(headerIndex + 1), matrix[headerIndex]);
   }
@@ -450,7 +713,7 @@
   }
 
   function findCsvExportUrl() {
-    const candidates = Array.from(document.querySelectorAll("a, button, input, img"))
+    const candidates = Array.from(document.querySelectorAll("a, button, input, img, div[role='button'], div[data-button-code]"))
       .map((element) => {
         const text = normalizeText(
           [
@@ -541,18 +804,20 @@
     });
 
     const sortedTeams = Array.from(teams.values()).sort((a, b) => teamOrder(a.name) - teamOrder(b.name) || b.total - a.total);
-    const sortedVerticals = Array.from(verticals.values()).sort((a, b) => {
-      const aOrder = orderIndex(a.name);
-      const bOrder = orderIndex(b.name);
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return b.total - a.total;
-    });
+    const sortedVerticals = Array.from(verticals.values())
+      .filter((vertical) => isKnownVertical(vertical.name))
+      .sort((a, b) => {
+        const aOrder = orderIndex(a.name);
+        const bOrder = orderIndex(b.name);
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return b.total - a.total;
+      });
 
     return { org, teams: sortedTeams, verticals: sortedVerticals };
   }
 
   function teamOrder(teamName) {
-    const order = ["Team Terra", "Team Nautiq", "Team Value"];
+    const order = ["Team Terra", "Team Nautiq", "Team Value", "Team TCOE", "Team SCAI"];
     const idx = order.indexOf(teamName);
     return idx === -1 ? 999 : idx;
   }
@@ -592,7 +857,13 @@
       consultants: new Set(),
       consultantsByRequestType: new Map(),
       byManager: new Map(),
+      byTeamManager: new Map(),
+      bySubregion: new Map(),
       byDeliverable: new Map(),
+      byIndustry: new Map(),
+      byForecastGrade: new Map(),
+      byVRank: new Map(),
+      byRenewalRank: new Map(),
       dealByDeliverable: new Map(),
       byMonth: new Map(),
       byConsultant: new Map(),
@@ -610,7 +881,13 @@
     summary.byRequestType.set(requestType, (summary.byRequestType.get(requestType) || 0) + 1);
     summary.consultants.add(row.consultant);
     incrementMap(summary.byManager, row.manager || "(blank)");
+    incrementMap(summary.byTeamManager, row.teamManager || "(blank)");
+    incrementMap(summary.bySubregion, row.subregion || "(blank)");
     incrementMap(summary.byDeliverable, deliverableLabel(row));
+    incrementMap(summary.byIndustry, row.industry || "(blank)");
+    incrementMap(summary.byForecastGrade, forecastGradeLabel(row));
+    addCustomerRankMetric(summary.byVRank, row.vrank, row);
+    addCustomerRankMetric(summary.byRenewalRank, row.renewalRank, row);
     addDealMetric(summary, row);
     incrementMap(summary.byMonth, row.month || "(blank)");
     incrementMap(summary.byConsultant, row.consultant || "(blank)");
@@ -627,6 +904,8 @@
 
   function requestTypeLabel(row) {
     if (isValueManagementRow(row)) return "Value Management";
+    if (isTcoeRow(row)) return "Technology COE";
+    if (isScaiRow(row)) return "SCAI Support";
     const salesTeam = normalizeOrg(row.salesTeam || row.requestType);
     if (industryGroupKey(row.salesVertical) === "channel") {
       if (salesTeam === "AMO") return "Channel AMO";
@@ -644,6 +923,16 @@
     if (!summary.legacyOrgByConsultant.has(name) || summary.legacyOrgByConsultant.get(name) === "(legacy org missing)") {
       summary.legacyOrgByConsultant.set(name, org);
     }
+  }
+
+  function addCustomerRankMetric(map, rankValue, row) {
+    const rank = normalizeText(rankValue) || "(blank)";
+    if (!map.has(rank)) {
+      map.set(rank, { rank, requests: 0, customers: new Set() });
+    }
+    const metric = map.get(rank);
+    metric.requests += 1;
+    metric.customers.add(normalizeText(row.company) || "(blank)");
   }
 
   function deliverableLabel(row) {
@@ -665,6 +954,9 @@
         pipelineRevenue: 0,
         closedRevenue: 0,
         weightedRevenue: 0,
+        arrCommit: 0,
+        mgrCommit: 0,
+        vlCommit: 0,
         won: 0,
         open: 0,
         lost: 0,
@@ -678,6 +970,9 @@
     metric.pipelineRevenue += pipelineRevenue(row);
     metric.closedRevenue += closedRevenue(row);
     metric.weightedRevenue += weightedRevenue(row);
+    metric.arrCommit += arrCommit(row);
+    metric.mgrCommit += mgrCommit(row);
+    metric.vlCommit += vlCommit(row);
     if (bucket === "Won") metric.won += 1;
     else if (bucket === "Lost") metric.lost += 1;
     else if (bucket === "Open") metric.open += 1;
@@ -710,6 +1005,49 @@
     return Array.from(monthMap.keys())
       .filter((key) => key && !String(key).startsWith("("))
       .sort((a, b) => String(a).localeCompare(String(b)));
+  }
+
+  function monthCountForRows(rows) {
+    const today = new Date();
+    const fiscalStart = fiscalStartDate(today);
+    const dates = rows
+      .map((row) => parseDateInputValue(row.dateValue))
+      .filter((date) => date && date >= fiscalStart && date <= today)
+      .sort((a, b) => a - b);
+    if (!dates.length) {
+      const months = new Set(rows.map((row) => row.month).filter((month) => month && !String(month).startsWith("(")));
+      return Math.max(months.size, 1);
+    }
+    const start = dates[0] > fiscalStart ? dates[0] : fiscalStart;
+    const datasetEnd = dates[dates.length - 1];
+    const end = datasetEnd && datasetEnd < today ? datasetEnd : today;
+    if (!start || !end) return 1;
+    return Math.max((end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1, 1);
+  }
+
+  function fiscalStartDate(referenceDate) {
+    const monthIdx = CONFIG.fiscalStartMonth - 1;
+    const year = referenceDate.getMonth() >= monthIdx ? referenceDate.getFullYear() : referenceDate.getFullYear() - 1;
+    return new Date(year, monthIdx, CONFIG.fiscalStartDay);
+  }
+
+  function parseDateInputValue(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalizeText(value));
+    if (!match) return null;
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+
+  function monthlyVolumeLabel(volume, months) {
+    return `${formatNumber(volume / Math.max(months, 1), 1)} / mo`;
+  }
+
+  function averageMonthlyValue(rows, getter) {
+    if (!rows.length) return 0;
+    return rows.reduce((sum, row) => sum + getter(row), 0) / rows.length;
+  }
+
+  function monthlyAverageLabel(value) {
+    return `${formatNumber(value, 1)} / mo`;
   }
 
   function installStyles() {
@@ -868,6 +1206,57 @@
         font-size: 12px;
         padding: 7px 10px;
       }
+      .scd-filter-multi {
+        position: relative;
+      }
+      .scd-filter-multi summary {
+        border: 1px solid var(--rw-muted);
+        border-radius: 999px;
+        color: var(--rw-ink);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+        list-style: none;
+        min-width: 132px;
+        padding: 7px 12px;
+        user-select: none;
+      }
+      .scd-filter-multi summary::-webkit-details-marker {
+        display: none;
+      }
+      .scd-filter-multi[open] summary {
+        background: #fff8ed;
+        border-color: var(--rw-gold);
+      }
+      .scd-filter-multi-options {
+        background: #fffdfa;
+        border: 1px solid var(--rw-line);
+        border-radius: 12px;
+        box-shadow: 0 18px 42px rgba(46, 41, 37, 0.16);
+        display: grid;
+        gap: 8px;
+        left: 0;
+        margin-top: 6px;
+        max-height: 260px;
+        min-width: 220px;
+        overflow: auto;
+        padding: 10px;
+        position: absolute;
+        top: 100%;
+        z-index: 100001;
+      }
+      .scd-filterbar .scd-filter-multi-option {
+        align-items: center;
+        color: var(--rw-ink);
+        display: flex;
+        font-size: 12px;
+        font-weight: 600;
+        gap: 8px;
+        white-space: nowrap;
+      }
+      .scd-filterbar .scd-filter-multi-option input {
+        margin: 0;
+      }
       .scd-filterbar button {
         margin-left: 0;
       }
@@ -978,6 +1367,78 @@
         font-size: 10px;
         font-weight: 400;
       }
+      .scd-definitions {
+        border-bottom: 1px solid var(--rw-line);
+        background: rgba(255, 253, 250, 0.78);
+      }
+      .scd-definitions summary {
+        color: var(--rw-rust);
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 12px;
+        font-weight: 800;
+        padding: 9px 14px;
+      }
+      .scd-definition-grid {
+        display: grid;
+        gap: 8px 16px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        padding: 0 14px 12px;
+      }
+      .scd-definition-item {
+        color: var(--rw-slate);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .scd-definition-item strong {
+        color: var(--rw-ink-deep);
+      }
+      .scd-notes-row td {
+        background: #fbfaf8;
+        border-top: 0;
+        padding: 0 16px 14px;
+        text-align: left;
+        white-space: normal;
+      }
+      .scd-notes-details {
+        border: 1px solid var(--rw-line);
+        border-radius: 10px;
+        margin: 0 0 6px;
+        overflow: hidden;
+      }
+      .scd-notes-details summary {
+        background: rgba(67,124,148,0.08);
+        color: var(--rw-ink-deep);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 800;
+        padding: 9px 12px;
+      }
+      .scd-notes-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        padding: 12px;
+      }
+      .scd-note-card {
+        background: #fff;
+        border: 1px solid rgba(105,119,120,0.16);
+        border-radius: 8px;
+        padding: 10px;
+      }
+      .scd-note-label {
+        color: var(--rw-slate);
+        font-size: 11px;
+        font-weight: 900;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+      }
+      .scd-note-text {
+        color: var(--rw-ink);
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
       .scd-heat {
         border-radius: 8px;
         font-weight: 700;
@@ -1077,6 +1538,25 @@
         color: var(--rw-ink-deep);
       }
       .scd-muted { color: var(--rw-slate); }
+      .scd-inline-insight {
+        background: linear-gradient(90deg, rgba(199, 70, 52, 0.12), rgba(245, 229, 184, 0.35));
+        border: 1px solid rgba(199, 70, 52, 0.22);
+        border-radius: 10px;
+        color: var(--rw-ink);
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1.45;
+        margin: 0 0 12px;
+        padding: 10px 12px;
+      }
+      .scd-inline-insight strong {
+        color: var(--rw-red);
+        font-size: 16px;
+      }
+      .scd-inline-insight:hover {
+        border-color: rgba(199, 70, 52, 0.42);
+        box-shadow: 0 8px 22px rgba(49, 45, 42, 0.08);
+      }
       .scd-record-link {
         color: var(--rw-blue);
         font-weight: 700;
@@ -1227,23 +1707,28 @@
     root.id = ROOT_ID;
     root.className = "scd-modal-root";
 
-    const views = [summaryData.org, ...(summaryData.teams || []), ...summaryData.verticals];
+    const views = [{ name: "Deal Lookup", isDealLookup: true }, summaryData.org, ...(summaryData.teams || []), ...summaryData.verticals];
     let activeIndex = 0;
     let dashboardFilters = makeEmptyDashboardFilters();
+    let dealLookupFilters = makeEmptyDealLookupFilters();
 
     function render() {
       const activeBase = views[activeIndex];
-      const activeRows = applyDashboardFilters(activeBase.rows, dashboardFilters);
+      const isDealLookup = Boolean(activeBase.isDealLookup);
+      const lookupRows = isDealLookup ? applyDealLookupFilters(summaryData.org.rows, dealLookupFilters) : [];
+      const activeRows = isDealLookup ? [] : applyDashboardFilters(activeBase.rows, dashboardFilters);
       const active = summaryFromRows(activeBase.name, activeRows);
       const requestTypes = requestTypesFor(active);
       const amoType = requestTypes.find((type) => /amo/i.test(type));
       const directType = requestTypes.find((type) => /direct/i.test(type));
       const amo = amoType ? metricFor(active, amoType) : { volume: 0, unique: 0, avg: 0 };
       const direct = directType ? metricFor(active, directType) : { volume: 0, unique: 0, avg: 0 };
+      const activeMonthCount = monthCountForRows(active.rows);
       const activeTeams = teamSummariesFromRows(active.rows);
       const activeVerticals = verticalSummariesFromRows(active.rows);
       const maxVerticalTotal = Math.max(...activeVerticals.map((vertical) => vertical.total), 1);
       const isAllVerticals = activeBase.name === summaryData.org.name;
+      const isVerticalView = !isDealLookup && summaryData.verticals.some((vertical) => vertical.name === activeBase.name);
 
       root.innerHTML = `
         <div class="scd-modal-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(CONFIG.title)}">
@@ -1255,11 +1740,13 @@
               <div class="scd-title-block">
                 <div class="scd-title">${escapeHtml(CONFIG.title)}</div>
                 <div class="scd-tagline">Your tool for Performance &amp; Engagement, Reporting &amp; Insights!</div>
-                <div class="scd-subtitle">Saved search ${escapeHtml(currentSearchLabel())} · Built from ${formatNumber(sourceCount)} rows via ${escapeHtml(sourceLabel)}.</div>
+                <div class="scd-subtitle">${escapeHtml(versionLabel())} - Saved search ${escapeHtml(currentSearchLabel())} - Built from ${formatNumber(sourceCount)} rows via ${escapeHtml(sourceLabel)}.</div>
               </div>
             </div>
             <div class="scd-actions">
               <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
+              <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
+              <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
               <button class="scd-tab" type="button" data-scd-refresh>Refresh</button>
               <button class="scd-tab" type="button" data-scd-close>Close</button>
             </div>
@@ -1272,13 +1759,14 @@
               )
               .join("")}
           </div>
-          ${dashboardFilterBar(activeBase.rows, dashboardFilters)}
+          ${isDealLookup ? dealLookupFilterBar(summaryData.org.rows, dealLookupFilters) : dashboardFilterBar(activeBase.rows, dashboardFilters)}
           <div class="scd-body">
+            ${isDealLookup ? dealLookupBody(lookupRows, dealLookupFilters) : `
             <div class="scd-kpis">
               ${kpi("Total Requests", active.total)}
               ${kpi("Unique SCs Staffed", active.consultants.size)}
-              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs`)}
-              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs`)}
+              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs / ${monthlyVolumeLabel(amo.volume, activeMonthCount)}`)}
+              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs / ${monthlyVolumeLabel(direct.volume, activeMonthCount)}`)}
             </div>
             ${isAllVerticals ? `<div class="scd-grid">
               <div class="scd-panel">
@@ -1311,7 +1799,7 @@
             </div>` : ""}
             <div class="scd-grid scd-deep-grid">
               <div class="scd-panel">
-                <div class="scd-panel-title">Assigned Manager Staffing Volume</div>
+                <div class="scd-panel-title">Current Manager Staffing Volume</div>
                 ${managerStaffingTable(active)}
               </div>
               <div class="scd-panel">
@@ -1320,12 +1808,40 @@
               </div>
             </div>
             <div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Team Manager Staffing Volume</div>
+              ${teamManagerStaffingTable(active)}
+            </div>
+            ${isVerticalView || isAllVerticals ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Org Blend Readiness</div>
+              ${legacyBlendTable(active)}
+            </div>` : ""}
+            <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Deal Analysis by Deliverable</div>
               ${dealAnalysisTable(active)}
             </div>
+            ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Company Industry</div>
+              ${rankedTable(active.byIndustry, "Company Industry", 0, active.total)}
+            </div>` : ""}
+            ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Industry Subgroup by Sales Motion</div>
+              ${industrySubgroupMotionTable(active)}
+            </div>` : ""}
+            ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Forecast Grade</div>
+              ${forecastGradePortlet(active)}
+            </div>` : ""}
             <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">SC Staffing Drilldown</div>
               ${scDrilldown(active)}
+            </div>
+            <div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Customers by VRank</div>
+              ${customersByVRankTable(active)}
+            </div>
+            <div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Customers by Renewal Rank</div>
+              ${customersByRenewalRankTable(active)}
             </div>
             <div class="scd-grid scd-deep-grid">
               ${isAllVerticals ? `<div class="scd-panel">
@@ -1341,6 +1857,7 @@
               <div class="scd-panel-title">Gravity Requests</div>
               ${gravityPortlet(active)}
             </div>
+            `}
           </div>
         </div>
       `;
@@ -1349,6 +1866,7 @@
         button.addEventListener("click", () => {
           activeIndex = Number(button.getAttribute("data-scd-tab"));
           dashboardFilters = makeEmptyDashboardFilters();
+          dealLookupFilters = makeEmptyDealLookupFilters();
           if (views[activeIndex]?.name === "Team Value") dashboardFilters.includeValue = "Yes";
           render();
         });
@@ -1359,15 +1877,46 @@
           render();
         });
       });
+      root.querySelectorAll("[data-scd-dashboard-multi]").forEach((input) => {
+        input.addEventListener("change", (event) => {
+          const key = event.target.getAttribute("data-scd-dashboard-multi");
+          const boxes = Array.from(root.querySelectorAll(`[data-scd-dashboard-multi="${key}"]`));
+          const selected = boxes.filter((box) => box.checked).map((box) => box.value);
+          dashboardFilters[key] = selected.length === boxes.length ? null : selected;
+          render();
+        });
+      });
       root.querySelector("[data-scd-clear-dashboard-filters]")?.addEventListener("click", () => {
         dashboardFilters = makeEmptyDashboardFilters();
         render();
       });
+      root.querySelectorAll("[data-scd-deal-lookup-filter]").forEach((input) => {
+        input.addEventListener("change", (event) => {
+          dealLookupFilters[event.target.getAttribute("data-scd-deal-lookup-filter")] = event.target.value;
+          render();
+        });
+        input.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          syncDealLookupFiltersFromDom(root, dealLookupFilters);
+          render();
+        });
+      });
+      root.querySelector("[data-scd-run-deal-lookup]")?.addEventListener("click", () => {
+        syncDealLookupFiltersFromDom(root, dealLookupFilters);
+        render();
+      });
+      root.querySelector("[data-scd-clear-deal-lookup]")?.addEventListener("click", () => {
+        dealLookupFilters = makeEmptyDealLookupFilters();
+        render();
+      });
       root.querySelector("[data-scd-refresh]")?.addEventListener("click", boot);
       root.querySelector("[data-scd-load-file]")?.addEventListener("click", promptForExportFile);
+      root.querySelector("[data-scd-net-suite-export]")?.addEventListener("click", reloadNetSuiteExport);
+      root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
       root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
       enableTableSorting(root);
-      enableDrilldowns(root, active);
+      enableDrilldowns(root, isDealLookup ? summaryFromRows("Deal Lookup", lookupRows) : active);
       root.addEventListener("click", (event) => {
         if (event.target === root) root.remove();
       });
@@ -1388,10 +1937,137 @@
     `;
   }
 
+  function makeEmptyDealLookupFilters() {
+    return {
+      consultant: "",
+      company: "",
+      opportunity: "",
+      vertical: "all",
+      forecastGrade: "all",
+      shadow: "all",
+      startDate: "",
+      endDate: ""
+    };
+  }
+
+  function dealLookupFilterBar(rows, filters) {
+    const dates = rows.map((row) => row.dateValue).filter(Boolean).sort();
+    const minDate = dates[0] || "";
+    const maxDate = dates[dates.length - 1] || "";
+    return `
+      <div class="scd-filterbar">
+        <label>
+          SC Name
+          <input type="search" placeholder="Search SC" data-scd-deal-lookup-filter="consultant" value="${escapeHtml(filters.consultant)}">
+        </label>
+        <label>
+          Customer / Prospect
+          <input type="search" placeholder="Search customer" data-scd-deal-lookup-filter="company" value="${escapeHtml(filters.company)}">
+        </label>
+        <label>
+          Opp Number / Name
+          <input type="search" placeholder="Search opportunity" data-scd-deal-lookup-filter="opportunity" value="${escapeHtml(filters.opportunity)}">
+        </label>
+        ${filterSelectWithAttr("Vertical", "vertical", knownVerticalOptions(rows), filters.vertical, "data-scd-deal-lookup-filter")}
+        ${filterSelectWithAttr("Forecast Grade", "forecastGrade", uniqueSorted(rows, "forecastGrade"), filters.forecastGrade, "data-scd-deal-lookup-filter")}
+        ${filterSelectWithAttr("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow, "data-scd-deal-lookup-filter")}
+        <label>
+          Begin
+          <input type="date" data-scd-deal-lookup-filter="startDate" value="${escapeHtml(filters.startDate)}" ${minDate ? `min="${escapeHtml(minDate)}"` : ""} ${maxDate ? `max="${escapeHtml(maxDate)}"` : ""}>
+        </label>
+        <label>
+          End
+          <input type="date" data-scd-deal-lookup-filter="endDate" value="${escapeHtml(filters.endDate)}" ${minDate ? `min="${escapeHtml(minDate)}"` : ""} ${maxDate ? `max="${escapeHtml(maxDate)}"` : ""}>
+        </label>
+        <button class="scd-tab" type="button" data-scd-run-deal-lookup>Search deals</button>
+        <button class="scd-tab" type="button" data-scd-clear-deal-lookup>Clear lookup</button>
+      </div>
+    `;
+  }
+
+  function syncDealLookupFiltersFromDom(root, filters) {
+    root.querySelectorAll("[data-scd-deal-lookup-filter]").forEach((input) => {
+      filters[input.getAttribute("data-scd-deal-lookup-filter")] = input.value;
+    });
+  }
+
+  function dealLookupBody(rows, filters) {
+    const hasCriteria = hasDealLookupCriteria(filters);
+    const summary = summaryFromRows("Deal Lookup", rows);
+    const totalRevenue = sumRows(rows, rowRevenue);
+    const totalPipelineRevenue = sumRows(rows, pipelineRevenue);
+    const totalWeightedRevenue = sumRows(rows, weightedRevenue);
+    const totalArrCommit = sumRows(rows, arrCommit);
+    const totalMgrCommit = sumRows(rows, mgrCommit);
+    const totalVlCommit = sumRows(rows, vlCommit);
+    return `
+      <div class="scd-kpis">
+        ${kpi("Matching SCRs", hasCriteria ? rows.length : 0)}
+        ${kpi("Unique Customers", hasCriteria ? new Set(rows.map((row) => normalizeText(row.company)).filter(Boolean)).size : 0)}
+        ${kpi("ARR Commit", hasCriteria ? formatCurrency(totalArrCommit) : "$0")}
+        ${kpi("MGR Commit", hasCriteria ? formatCurrency(totalMgrCommit) : "$0")}
+        ${kpi("VL Commit", hasCriteria ? formatCurrency(totalVlCommit) : "$0")}
+        ${kpi("Pipeline Rev", hasCriteria ? formatCurrency(totalPipelineRevenue) : "$0")}
+        ${kpi("Weighted Rev", hasCriteria ? formatCurrency(totalWeightedRevenue) : "$0", hasCriteria ? `${formatCurrency(totalRevenue)} total rev` : "")}
+      </div>
+      <div class="scd-panel scd-deep-grid">
+        <div class="scd-panel-title">Deal Lookup Detail</div>
+        ${hasCriteria ? dealLookupDetailTable(rows) : `<div class="scd-warning">Enter an SC name, customer/prospect, opportunity, or vertical to find forecasted SCR deal lines.</div>`}
+      </div>
+      ${hasCriteria ? `<div class="scd-grid scd-deep-grid">
+        <div class="scd-panel">
+          <div class="scd-panel-title">Lookup by Request Type</div>
+          ${requestTypeTable(summary, requestTypesFor(summary))}
+        </div>
+        <div class="scd-panel">
+          <div class="scd-panel-title">Lookup by Deliverable</div>
+          ${rankedTable(summary.byDeliverable, "Deliverable", 8, summary.total)}
+        </div>
+      </div>` : ""}
+    `;
+  }
+
+  function hasDealLookupCriteria(filters) {
+    return Boolean(
+      normalizeText(filters.consultant) ||
+        normalizeText(filters.company) ||
+        normalizeText(filters.opportunity) ||
+        filters.vertical !== "all" ||
+        filters.forecastGrade !== "all" ||
+        filters.shadow !== "all" ||
+        filters.startDate ||
+        filters.endDate
+    );
+  }
+
+  function applyDealLookupFilters(rows, filters) {
+    if (!hasDealLookupCriteria(filters)) return [];
+    return rows.filter((row) => {
+      if (!containsText(row.consultant, filters.consultant)) return false;
+      if (!containsText(row.company, filters.company)) return false;
+      if (!containsText(row.opportunity, filters.opportunity)) return false;
+      if (filters.vertical !== "all" && normalizeText(row.vertical) !== normalizeText(filters.vertical)) return false;
+      if (filters.forecastGrade !== "all" && normalizeText(row.forecastGrade) !== normalizeText(filters.forecastGrade)) return false;
+      if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
+      if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
+      if (filters.startDate && (!row.dateValue || row.dateValue < filters.startDate)) return false;
+      if (filters.endDate && (!row.dateValue || row.dateValue > filters.endDate)) return false;
+      return true;
+    });
+  }
+
+  function containsText(value, query) {
+    const text = normalizeText(value).toLowerCase();
+    const needle = normalizeText(query).toLowerCase();
+    return !needle || text.includes(needle);
+  }
+
   function makeEmptyDashboardFilters() {
     return {
+      orgs: null,
       status: "all",
       leadSc: "all",
+      shadow: "all",
       crossStaffed: "all",
       includeValue: "No",
       startDate: "",
@@ -1403,10 +2079,13 @@
     const dates = rows.map((row) => row.dateValue).filter(Boolean).sort();
     const minDate = dates[0] || "";
     const maxDate = dates[dates.length - 1] || "";
+    const orgOptions = requestTypeOptionsForRows(rows);
     return `
       <div class="scd-filterbar">
+        ${multiFilterSelect("Org", "orgs", orgOptions, filters.orgs)}
         ${filterSelectWithAttr("Status", "status", uniqueSorted(rows, "status"), filters.status, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc, "data-scd-dashboard-filter")}
+        ${filterSelectWithAttr("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Cross Staffed", "crossStaffed", ["Cross Staffed Only", "Not Cross Staffed"], filters.crossStaffed, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Include Value", "includeValue", ["No", "Yes"], filters.includeValue, "data-scd-dashboard-filter")}
         <label>
@@ -1424,9 +2103,12 @@
 
   function applyDashboardFilters(rows, filters) {
     return rows.filter((row) => {
+      if (Array.isArray(filters.orgs) && !filters.orgs.includes(requestTypeLabel(row))) return false;
       if (filters.status !== "all" && normalizeText(row.status) !== filters.status) return false;
       if (filters.leadSc === "Lead SC Only" && !isLeadScValue(row.leadSc)) return false;
       if (filters.leadSc === "Supporting SC Only" && isLeadScValue(row.leadSc)) return false;
+      if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
+      if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
       if (filters.crossStaffed === "Cross Staffed Only" && !isCrossStaffedRow(row)) return false;
       if (filters.crossStaffed === "Not Cross Staffed" && isCrossStaffedRow(row)) return false;
       if (filters.includeValue !== "Yes" && isValueManagementRow(row)) return false;
@@ -1546,6 +2228,143 @@
     );
   }
 
+  function forecastGradeLabel(row) {
+    return normalizeText(row.forecastGrade) || "Missing Forecast Grade";
+  }
+
+  function forecastGradePortlet(summary) {
+    const missing = summary.byForecastGrade.get("Missing Forecast Grade") || 0;
+    const missingPct = summary.total ? missing / summary.total : 0;
+    const sorted = sortedEntries(summary.byForecastGrade);
+    if (!sorted.length) return `<div class="scd-warning">No Forecast Grade data found. Confirm Forecast Grade is included in the export.</div>`;
+    return `
+      <div class="scd-inline-insight" data-scd-drill='${drillAttr({ forecastGrade: "Missing Forecast Grade" })}'>
+        <strong>${(missingPct * 100).toFixed(1)}%</strong> of ${escapeHtml(summary.name)} deals are missing Forecast Grade
+        <span class="scd-muted">(${formatNumber(missing)} of ${formatNumber(summary.total)} SCRs)</span>
+      </div>
+      ${simpleTable(
+        ["Forecast Grade", "Volume", "% of Shown", "Unique SCs"],
+        sorted.map(([grade, volume]) => {
+          const gradeRows = summary.rows.filter((row) => forecastGradeLabel(row) === grade);
+          const uniqueScs = new Set(gradeRows.map((row) => row.consultant).filter(Boolean)).size;
+          return [
+            { display: grade, value: grade, drill: { forecastGrade: grade } },
+            { display: formatNumber(volume), value: volume, heat: true, drill: { forecastGrade: grade } },
+            { display: summary.total ? `${((volume / summary.total) * 100).toFixed(0)}%` : "0%", value: summary.total ? volume / summary.total : 0, heat: true, drill: { forecastGrade: grade } },
+            { display: formatNumber(uniqueScs), value: uniqueScs, heat: true, drill: { forecastGrade: grade } }
+          ];
+        }),
+        [
+          { display: "Total", value: "Total" },
+          { display: formatNumber(summary.total), value: summary.total },
+          { display: summary.total ? "100%" : "0%", value: summary.total ? 1 : 0 },
+          { display: formatNumber(summary.consultants.size), value: summary.consultants.size }
+        ]
+      )}
+    `;
+  }
+
+  function salesMotionBucket(row) {
+    const requestType = requestTypeLabel(row);
+    if (/channel/i.test(requestType)) return "Channel";
+    if (/amo/i.test(requestType)) return "AMO";
+    if (/direct/i.test(requestType)) return "Direct";
+    return "Other";
+  }
+
+  function industrySubgroupMotionTable(summary) {
+    const groups = new Map();
+    summary.rows.forEach((row) => {
+      const subgroup = normalizeText(row.industrySubgroup) || "(blank)";
+      const motion = salesMotionBucket(row);
+      if (!groups.has(subgroup)) {
+        groups.set(subgroup, { subgroup, total: 0, amo: 0, direct: 0, channel: 0, other: 0 });
+      }
+      const metric = groups.get(subgroup);
+      metric.total += 1;
+      if (motion === "AMO") metric.amo += 1;
+      else if (motion === "Direct") metric.direct += 1;
+      else if (motion === "Channel") metric.channel += 1;
+      else metric.other += 1;
+    });
+
+    const entries = Array.from(groups.values()).sort((a, b) => b.total - a.total || a.subgroup.localeCompare(b.subgroup));
+    if (!entries.length || entries.every((entry) => entry.subgroup === "(industry subgroup column missing)")) {
+      return `<div class="scd-warning">No Industry Subgroup data found. Confirm the export includes the exact Industry Subgroup result column.</div>`;
+    }
+    const totals = entries.reduce(
+      (sum, metric) => {
+        sum.total += metric.total;
+        sum.amo += metric.amo;
+        sum.direct += metric.direct;
+        sum.channel += metric.channel;
+        sum.other += metric.other;
+        return sum;
+      },
+      { total: 0, amo: 0, direct: 0, channel: 0, other: 0 }
+    );
+    const headers = totals.other ? ["Industry Subgroup", "Total", "% of Shown", "AMO", "Direct", "Channel", "Other"] : ["Industry Subgroup", "Total", "% of Shown", "AMO", "Direct", "Channel"];
+    const rows = entries.map((metric) => {
+      const base = [
+        { display: metric.subgroup, value: metric.subgroup, drill: { industrySubgroup: metric.subgroup } },
+        { display: formatNumber(metric.total), value: metric.total, heat: true, drill: { industrySubgroup: metric.subgroup } },
+        { display: totals.total ? `${((metric.total / totals.total) * 100).toFixed(0)}%` : "0%", value: totals.total ? metric.total / totals.total : 0, heat: true, drill: { industrySubgroup: metric.subgroup } },
+        { display: formatNumber(metric.amo), value: metric.amo, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "AMO" } },
+        { display: formatNumber(metric.direct), value: metric.direct, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "Direct" } },
+        { display: formatNumber(metric.channel), value: metric.channel, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "Channel" } }
+      ];
+      if (totals.other) base.push({ display: formatNumber(metric.other), value: metric.other, heat: true, drill: { industrySubgroup: metric.subgroup, salesMotion: "Other" } });
+      return base;
+    });
+    const footer = [
+      { display: "Total", value: "Total" },
+      { display: formatNumber(totals.total), value: totals.total },
+      { display: totals.total ? "100%" : "0%", value: totals.total ? 1 : 0 },
+      { display: formatNumber(totals.amo), value: totals.amo },
+      { display: formatNumber(totals.direct), value: totals.direct },
+      { display: formatNumber(totals.channel), value: totals.channel }
+    ];
+    if (totals.other) footer.push({ display: formatNumber(totals.other), value: totals.other });
+    return simpleTable(headers, rows, footer);
+  }
+
+  function customersByVRankTable(summary) {
+    return customersByRankTable(summary.byVRank, "VRank", "vrank", "VRank");
+  }
+
+  function customersByRenewalRankTable(summary) {
+    return customersByRankTable(summary.byRenewalRank, "Renewal Rank", "renewalRank", "Renewal Rank");
+  }
+
+  function customersByRankTable(map, label, drillKey, exportLabel) {
+    const entries = Array.from(map.values())
+      .filter((metric) => metric.rank && !String(metric.rank).startsWith("("))
+      .sort((a, b) => b.customers.size - a.customers.size || b.requests - a.requests || String(a.rank).localeCompare(String(b.rank)));
+    if (!entries.length) return `<div class="scd-warning">No ${escapeHtml(label)} data found. Confirm ${escapeHtml(exportLabel)} is included in the export.</div>`;
+    const totalCustomers = new Set(entries.flatMap((metric) => Array.from(metric.customers))).size;
+    const totalRequests = entries.reduce((sum, metric) => sum + metric.requests, 0);
+    return simpleTable(
+      [label, "Customers", "Requests", "Req / Customer", "% Customers"],
+      entries.map((metric) => {
+        const customers = metric.customers.size;
+        return [
+          { display: metric.rank, value: metric.rank, drill: { [drillKey]: metric.rank } },
+          { display: formatNumber(customers), value: customers, heat: true, drill: { [drillKey]: metric.rank } },
+          { display: formatNumber(metric.requests), value: metric.requests, heat: true, drill: { [drillKey]: metric.rank } },
+          { display: customers ? (metric.requests / customers).toFixed(1) : "0.0", value: customers ? metric.requests / customers : 0, heat: true, drill: { [drillKey]: metric.rank } },
+          { display: totalCustomers ? `${((customers / totalCustomers) * 100).toFixed(0)}%` : "0%", value: totalCustomers ? customers / totalCustomers : 0, heat: true, drill: { [drillKey]: metric.rank } }
+        ];
+      }),
+      [
+        { display: "Total", value: "Total" },
+        { display: formatNumber(totalCustomers), value: totalCustomers },
+        { display: formatNumber(totalRequests), value: totalRequests },
+        { display: totalCustomers ? (totalRequests / totalCustomers).toFixed(1) : "0.0", value: totalCustomers ? totalRequests / totalCustomers : 0 },
+        { display: totalCustomers ? "100%" : "0%", value: totalCustomers ? 1 : 0 }
+      ]
+    );
+  }
+
   function gravityPortlet(summary) {
     const total = summary.gravityRows.length;
     if (!total) return `<div class="scd-warning">No #gravity requests found in this view.</div>`;
@@ -1612,7 +2431,7 @@
     let shownDirect = 0;
     let shownCross = 0;
     return simpleTable(
-      ["Assigned To Manager", "Volume", "% of Shown", "AMO", "Direct", "Cross Staffed", "% Cross Staffed"],
+      ["Current Manager", "Volume", "% of Shown", "AMO", "Direct", "Cross Staffed", "% Cross Staffed"],
       entries.map(([manager, volume]) => {
         const managerRows = summary.rows.filter((row) => normalizeText(row.manager) === normalizeText(manager));
         const amo = managerRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO").length;
@@ -1644,16 +2463,195 @@
     );
   }
 
+  function teamManagerStaffingTable(summary) {
+    const entries = sortedEntries(summary.byTeamManager).slice(0, 12);
+    if (!entries.length) return `<div class="scd-warning">No team manager data found. Confirm Team Manager is included in the CSV export.</div>`;
+    const total = summary.total || 1;
+    let shownVolume = 0;
+    let shownSame = 0;
+    let shownDifferent = 0;
+    let shownAmo = 0;
+    let shownDirect = 0;
+    let shownCross = 0;
+    return simpleTable(
+      ["Team Manager", "Volume", "% of Shown", "Same Current Manager", "Different Current Manager", "% Different", "AMO", "Direct", "Cross Staffed"],
+      entries.map(([teamManager, volume]) => {
+        const teamRows = summary.rows.filter((row) => normalizeText(row.teamManager) === normalizeText(teamManager));
+        const same = teamRows.filter((row) => normalizeText(row.manager) === normalizeText(row.teamManager)).length;
+        const different = teamRows.filter((row) => normalizeText(row.manager) !== normalizeText(row.teamManager)).length;
+        const amo = teamRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO").length;
+        const direct = teamRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "Direct").length;
+        const cross = teamRows.filter(isCrossStaffedRow).length;
+        shownVolume += volume;
+        shownSame += same;
+        shownDifferent += different;
+        shownAmo += amo;
+        shownDirect += direct;
+        shownCross += cross;
+        return [
+          { display: teamManager, value: teamManager, drill: { teamManager } },
+          { display: formatNumber(volume), value: volume, heat: true, drill: { teamManager } },
+          { display: `${((volume / total) * 100).toFixed(0)}%`, value: volume / total, heat: true, drill: { teamManager } },
+          { display: formatNumber(same), value: same, heat: true, drill: { teamManager, managerMismatch: "false" } },
+          { display: formatNumber(different), value: different, heat: true, drill: { teamManager, managerMismatch: "true" } },
+          { display: volume ? `${((different / volume) * 100).toFixed(0)}%` : "0%", value: volume ? different / volume : 0, heat: true, drill: { teamManager, managerMismatch: "true" } },
+          { display: formatNumber(amo), value: amo, heat: true, drill: { teamManager, salesTeam: "AMO" } },
+          { display: formatNumber(direct), value: direct, heat: true, drill: { teamManager, salesTeam: "Direct" } },
+          { display: formatNumber(cross), value: cross, heat: true, drill: { teamManager, crossStaffed: "true" } }
+        ];
+      }),
+      [
+        { display: entries.length < summary.byTeamManager.size ? "Shown Total" : "Total", value: "Total" },
+        { display: formatNumber(shownVolume), value: shownVolume },
+        { display: `${((shownVolume / total) * 100).toFixed(0)}%`, value: shownVolume / total },
+        { display: formatNumber(shownSame), value: shownSame },
+        { display: formatNumber(shownDifferent), value: shownDifferent },
+        { display: shownVolume ? `${((shownDifferent / shownVolume) * 100).toFixed(0)}%` : "0%", value: shownVolume ? shownDifferent / shownVolume : 0 },
+        { display: formatNumber(shownAmo), value: shownAmo },
+        { display: formatNumber(shownDirect), value: shownDirect },
+        { display: formatNumber(shownCross), value: shownCross }
+      ]
+    );
+  }
+
+  function legacyBlendTable(summary) {
+    const months = monthCountForRows(summary.rows);
+    const directWeight = 2;
+    const amoWeight = 1;
+    const rows = Array.from(summary.byConsultant.keys())
+      .map((name) => {
+        const scRows = rowsForConsultant(summary, name);
+        const legacy = normalizeOrg(summary.legacyOrgByConsultant.get(name) || scRows.find((row) => row.legacyOrg)?.legacyOrg || "");
+        const direct = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "Direct").length;
+        const amo = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO").length;
+        if (legacy !== "Direct" && legacy !== "AMO") return null;
+        const nativeVolume = legacy === "Direct" ? direct : amo;
+        const blendVolume = legacy === "Direct" ? amo : direct;
+        const weightedNative = legacy === "Direct" ? direct * directWeight : amo * amoWeight;
+        const weightedBlend = legacy === "Direct" ? amo * amoWeight : direct * directWeight;
+        const weightedTotal = weightedNative + weightedBlend;
+        return {
+          name,
+          legacy,
+          nativeVolume,
+          blendVolume,
+          total: scRows.length,
+          direct,
+          amo,
+          weightedNative,
+          weightedBlend,
+          weightedTotal
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.weightedBlend - a.weightedBlend || b.blendVolume - a.blendVolume || b.nativeVolume - a.nativeVolume || a.name.localeCompare(b.name));
+
+    if (!rows.length) return `<div class="scd-warning">No Legacy Direct or Legacy AMO SCs found in this view.</div>`;
+
+    const totals = rows.reduce(
+      (sum, row) => {
+        sum.total += row.total;
+        sum.nativeVolume += row.nativeVolume;
+        sum.blendVolume += row.blendVolume;
+        sum.direct += row.direct;
+        sum.amo += row.amo;
+        sum.weightedNative += row.weightedNative;
+        sum.weightedBlend += row.weightedBlend;
+        sum.weightedTotal += row.weightedTotal;
+        if (row.legacy === "Direct") {
+          sum.legacyDirectScs += 1;
+          if (row.amo > 0) sum.legacyDirectBlended += 1;
+          sum.directToAmoVolume += row.amo;
+        }
+        if (row.legacy === "AMO") {
+          sum.legacyAmoScs += 1;
+          if (row.direct > 0) sum.legacyAmoBlended += 1;
+          sum.amoToDirectVolume += row.direct;
+        }
+        return sum;
+      },
+      {
+        total: 0,
+        nativeVolume: 0,
+        blendVolume: 0,
+        direct: 0,
+        amo: 0,
+        weightedNative: 0,
+        weightedBlend: 0,
+        weightedTotal: 0,
+        legacyDirectScs: 0,
+        legacyDirectBlended: 0,
+        legacyAmoScs: 0,
+        legacyAmoBlended: 0,
+        directToAmoVolume: 0,
+        amoToDirectVolume: 0
+      }
+    );
+    const blendedScs = rows.filter((row) => row.blendVolume > 0).length;
+    const blendScore = totals.weightedTotal ? totals.weightedBlend / totals.weightedTotal : 0;
+    const directBlendPct = totals.legacyDirectScs ? totals.legacyDirectBlended / totals.legacyDirectScs : 0;
+    const amoBlendPct = totals.legacyAmoScs ? totals.legacyAmoBlended / totals.legacyAmoScs : 0;
+    const avgBlendPerMonth = averageMonthlyValue(rows, (row) => row.blendVolume / months);
+    const avgWeightedBlendPerMonth = averageMonthlyValue(rows, (row) => row.weightedBlend / months);
+
+    return `
+      <div class="scd-kpis scd-compact-kpis">
+        ${kpi("Blended SCs", `${formatNumber(blendedScs)} / ${formatNumber(rows.length)}`, `${((blendedScs / rows.length) * 100).toFixed(0)}% have worked opposite legacy org`)}
+        ${kpi("Blend Volume", totals.blendVolume, `${monthlyAverageLabel(avgBlendPerMonth)} average across SCs`)}
+        ${kpi("Weighted Blend Score", `${(blendScore * 100).toFixed(0)}%`, `Direct work weighted ${directWeight}x; AMO work ${amoWeight}x`)}
+        ${kpi("AMO-to-Direct", totals.amoToDirectVolume, `${formatNumber(totals.legacyAmoBlended)} / ${formatNumber(totals.legacyAmoScs)} legacy AMO SCs blended`)}
+      </div>
+      <div class="scd-chart-note">
+        <strong>How to read this:</strong>
+        A blended SC has worked at least one opportunity for the opposite legacy org. Legacy Direct SCs blend when they work AMO opportunities; Legacy AMO SCs blend when they work Direct opportunities. Direct work is weighted higher because those engagements are typically larger and longer.
+      </div>
+      ${simpleTable(
+        ["SC", "Legacy Org", "Total", "Direct", "AMO", "Blend Vol", "Blend / Mo", "Weighted Blend", "Weighted / Mo", "% Blend"],
+        rows.map((row) => {
+          const oppositeOrg = row.legacy === "Direct" ? "AMO" : "Direct";
+          return [
+            { display: scLabel(summary, row.name), value: row.name, html: true, drill: { consultant: row.name } },
+            { display: row.legacy, value: row.legacy, drill: { legacyOrg: row.legacy } },
+            { display: formatNumber(row.total), value: row.total, heat: true, drill: { consultant: row.name } },
+            { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
+            { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
+            { display: formatNumber(row.blendVolume), value: row.blendVolume, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: monthlyVolumeLabel(row.blendVolume, months), value: row.blendVolume / months, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: formatNumber(row.weightedBlend, 1), value: row.weightedBlend, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: monthlyVolumeLabel(row.weightedBlend, months), value: row.weightedBlend / months, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: row.total ? `${((row.blendVolume / row.total) * 100).toFixed(0)}%` : "0%", value: row.total ? row.blendVolume / row.total : 0, heat: true, drill: { consultant: row.name } }
+          ];
+        }),
+        [
+          { display: "Total", value: "Total" },
+          { display: `${formatNumber(totals.legacyDirectBlended)} / ${formatNumber(totals.legacyDirectScs)} Direct, ${formatNumber(totals.legacyAmoBlended)} / ${formatNumber(totals.legacyAmoScs)} AMO`, value: blendedScs },
+          { display: formatNumber(totals.total), value: totals.total },
+          { display: formatNumber(totals.direct), value: totals.direct },
+          { display: formatNumber(totals.amo), value: totals.amo },
+          { display: formatNumber(totals.blendVolume), value: totals.blendVolume },
+          { display: monthlyAverageLabel(avgBlendPerMonth), value: avgBlendPerMonth },
+          { display: formatNumber(totals.weightedBlend, 1), value: totals.weightedBlend },
+          { display: monthlyAverageLabel(avgWeightedBlendPerMonth), value: avgWeightedBlendPerMonth },
+          { display: totals.total ? `${((totals.blendVolume / totals.total) * 100).toFixed(0)}%` : "0%", value: totals.total ? totals.blendVolume / totals.total : 0 }
+        ]
+      )}
+    `;
+  }
+
   function isCrossStaffedRow(row) {
+    if (!row.salesVerticalSource) return false;
     const scIndustryGroup = industryGroupKey(row.vertical);
-    const salesIndustryGroup = industryGroupKey(row.salesVertical);
+    const salesIndustryGroup = industryGroupKey(knownSalesVertical(row));
     if (!scIndustryGroup || !salesIndustryGroup) return false;
     return scIndustryGroup !== salesIndustryGroup;
   }
 
   function drillForLabel(label, value) {
+    if (/team manager/i.test(label)) return { teamManager: value };
     if (/manager/i.test(label)) return { manager: value };
     if (/deliverable/i.test(label)) return { deliverable: value };
+    if (/company industry/i.test(label)) return { industry: value };
+    if (/forecast grade/i.test(label)) return { forecastGrade: value };
     if (/team/i.test(label)) return { team: value };
     return {};
   }
@@ -1670,23 +2668,29 @@
         sum.closedRevenue += metric.closedRevenue;
         sum.totalRevenue += metric.totalRevenue;
         sum.weightedRevenue += metric.weightedRevenue;
+        sum.arrCommit += metric.arrCommit;
+        sum.mgrCommit += metric.mgrCommit;
+        sum.vlCommit += metric.vlCommit;
         sum.won += metric.won;
         sum.open += metric.open;
         sum.lost += metric.lost;
         return sum;
       },
-      { requests: 0, pipelineRevenue: 0, closedRevenue: 0, totalRevenue: 0, weightedRevenue: 0, won: 0, open: 0, lost: 0 }
+      { requests: 0, pipelineRevenue: 0, closedRevenue: 0, totalRevenue: 0, weightedRevenue: 0, arrCommit: 0, mgrCommit: 0, vlCommit: 0, won: 0, open: 0, lost: 0 }
     );
     const totalClosed = totals.won + totals.lost;
     const totalWinRate = totalClosed ? totals.won / totalClosed : null;
     return simpleTable(
-      ["Deliverable", "Requests", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
+      ["Deliverable", "Requests", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
       entries.map((metric) => {
         const closed = metric.won + metric.lost;
         const winRate = closed ? metric.won / closed : null;
         return [
           { display: metric.deliverable, value: metric.deliverable, drill: { deliverable: metric.deliverable } },
           { display: formatNumber(metric.requests), value: metric.requests, drill: { deliverable: metric.deliverable } },
+          { display: formatCurrency(metric.arrCommit), value: metric.arrCommit, heat: true, drill: { deliverable: metric.deliverable } },
+          { display: formatCurrency(metric.mgrCommit), value: metric.mgrCommit, heat: true, drill: { deliverable: metric.deliverable } },
+          { display: formatCurrency(metric.vlCommit), value: metric.vlCommit, heat: true, drill: { deliverable: metric.deliverable } },
           { display: formatCurrency(metric.pipelineRevenue), value: metric.pipelineRevenue, heat: true, drill: { deliverable: metric.deliverable, oppBucket: "Open" } },
           { display: formatCurrency(metric.closedRevenue), value: metric.closedRevenue, heat: true, drill: { deliverable: metric.deliverable, oppBucket: "Won" } },
           { display: formatCurrency(metric.totalRevenue), value: metric.totalRevenue, heat: true, drill: { deliverable: metric.deliverable } },
@@ -1701,6 +2705,9 @@
       [
         { display: entries.length < summary.dealByDeliverable.size ? "Shown Total" : "Total", value: "Total" },
         { display: formatNumber(totals.requests), value: totals.requests },
+        { display: formatCurrency(totals.arrCommit), value: totals.arrCommit },
+        { display: formatCurrency(totals.mgrCommit), value: totals.mgrCommit },
+        { display: formatCurrency(totals.vlCommit), value: totals.vlCommit },
         { display: formatCurrency(totals.pipelineRevenue), value: totals.pipelineRevenue },
         { display: formatCurrency(totals.closedRevenue), value: totals.closedRevenue },
         { display: formatCurrency(totals.totalRevenue), value: totals.totalRevenue },
@@ -1750,14 +2757,19 @@
   }
 
   function staffedScVolumeTable(summary, entries) {
+    const summaryMonths = monthCountForRows(summary.rows);
     const rows = entries.map(([name, volume]) => {
       const scRows = rowsForConsultant(summary, name);
+      const months = summaryMonths;
       const direct = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg("Direct")).length;
       const amo = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg("AMO")).length;
       const pipeline = sumRows(scRows, pipelineRevenue);
       const closedRevenueTotal = sumRows(scRows, closedRevenue);
       const revenue = sumRows(scRows, rowRevenue);
       const weighted = sumRows(scRows, weightedRevenue);
+      const arrCommitTotal = sumRows(scRows, arrCommit);
+      const mgrCommitTotal = sumRows(scRows, mgrCommit);
+      const vlCommitTotal = sumRows(scRows, vlCommit);
       const won = scRows.filter((row) => opportunityBucket(row.oppStatus) === "Won").length;
       const open = scRows.filter((row) => opportunityBucket(row.oppStatus) === "Open").length;
       const lost = scRows.filter((row) => opportunityBucket(row.oppStatus) === "Lost").length;
@@ -1766,12 +2778,16 @@
       return {
         name,
         volume,
+        months,
         direct,
         amo,
         pipeline,
         closedRevenueTotal,
         revenue,
         weighted,
+        arrCommitTotal,
+        mgrCommitTotal,
+        vlCommitTotal,
         won,
         open,
         lost,
@@ -1787,23 +2803,35 @@
         sum.closedRevenueTotal += row.closedRevenueTotal;
         sum.revenue += row.revenue;
         sum.weighted += row.weighted;
+        sum.arrCommitTotal += row.arrCommitTotal;
+        sum.mgrCommitTotal += row.mgrCommitTotal;
+        sum.vlCommitTotal += row.vlCommitTotal;
         sum.won += row.won;
         sum.open += row.open;
         sum.lost += row.lost;
         return sum;
       },
-      { volume: 0, direct: 0, amo: 0, pipeline: 0, closedRevenueTotal: 0, revenue: 0, weighted: 0, won: 0, open: 0, lost: 0 }
+      { volume: 0, direct: 0, amo: 0, pipeline: 0, closedRevenueTotal: 0, revenue: 0, weighted: 0, arrCommitTotal: 0, mgrCommitTotal: 0, vlCommitTotal: 0, won: 0, open: 0, lost: 0 }
     );
     const totalClosed = totals.won + totals.lost;
     const totalWinRate = totalClosed ? totals.won / totalClosed : null;
+    const avgVolumePerMonth = averageMonthlyValue(rows, (row) => row.volume / row.months);
+    const avgDirectPerMonth = averageMonthlyValue(rows, (row) => row.direct / row.months);
+    const avgAmoPerMonth = averageMonthlyValue(rows, (row) => row.amo / row.months);
     return simpleTable(
-      ["SC", "Volume", "Direct Volume", "AMO Volume", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
+      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
       rows.map((row) => {
         return [
           { display: scLabel(summary, row.name), value: row.name, html: true, drill: { consultant: row.name } },
           { display: formatNumber(row.volume), value: row.volume, heat: true, drill: { consultant: row.name } },
+          { display: monthlyVolumeLabel(row.volume, row.months), value: row.volume / row.months, heat: true, drill: { consultant: row.name } },
           { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
+          { display: monthlyVolumeLabel(row.direct, row.months), value: row.direct / row.months, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
           { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
+          { display: monthlyVolumeLabel(row.amo, row.months), value: row.amo / row.months, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
+          { display: formatCurrency(row.arrCommitTotal), value: row.arrCommitTotal, heat: true, drill: { consultant: row.name } },
+          { display: formatCurrency(row.mgrCommitTotal), value: row.mgrCommitTotal, heat: true, drill: { consultant: row.name } },
+          { display: formatCurrency(row.vlCommitTotal), value: row.vlCommitTotal, heat: true, drill: { consultant: row.name } },
           { display: formatCurrency(row.pipeline), value: row.pipeline, heat: true, drill: { consultant: row.name, oppBucket: "Open" } },
           { display: formatCurrency(row.closedRevenueTotal), value: row.closedRevenueTotal, heat: true, drill: { consultant: row.name, oppBucket: "Won" } },
           { display: formatCurrency(row.revenue), value: row.revenue, heat: true, drill: { consultant: row.name } },
@@ -1818,8 +2846,14 @@
       [
         { display: "Total", value: "Total" },
         { display: formatNumber(totals.volume), value: totals.volume },
+        { display: monthlyAverageLabel(avgVolumePerMonth), value: avgVolumePerMonth },
         { display: formatNumber(totals.direct), value: totals.direct },
+        { display: monthlyAverageLabel(avgDirectPerMonth), value: avgDirectPerMonth },
         { display: formatNumber(totals.amo), value: totals.amo },
+        { display: monthlyAverageLabel(avgAmoPerMonth), value: avgAmoPerMonth },
+        { display: formatCurrency(totals.arrCommitTotal), value: totals.arrCommitTotal },
+        { display: formatCurrency(totals.mgrCommitTotal), value: totals.mgrCommitTotal },
+        { display: formatCurrency(totals.vlCommitTotal), value: totals.vlCommitTotal },
         { display: formatCurrency(totals.pipeline), value: totals.pipeline },
         { display: formatCurrency(totals.closedRevenueTotal), value: totals.closedRevenueTotal },
         { display: formatCurrency(totals.revenue), value: totals.revenue },
@@ -1844,19 +2878,28 @@
   }
 
   function crossStaffingPies(summary) {
+    if (!hasSalesVerticalData(summary.rows)) {
+      return `
+        <div class="scd-warning">
+          Cross Staffing needs the <strong>Sales Vertical</strong> field in the export. The current CSV does not include a usable Sales Vertical, so this chart is hidden to avoid showing misleading results.
+        </div>
+      `;
+    }
+    const directRows = crossStaffedRowsForSalesTeam(summary, "Direct");
+    const amoRows = crossStaffedRowsForSalesTeam(summary, "AMO");
     return `
       <div class="scd-industry-grid">
-        ${pieCard(summary, "Direct", "Direct sales team requests by Industry Group", "salesVertical", {
+        ${pieCard(summary, "Direct", "Cross-staffed Direct requests by Sales Vertical", "salesVertical", {
           filterKey: "salesVertical",
-          rows: rowsForSalesTeam(summary, "Direct"),
+          rows: directRows,
           extraFilters: { salesTeam: "Direct" },
-          missing: "No Direct requests found."
+          missing: "No cross-staffed Direct requests found."
         })}
-        ${pieCard(summary, "AMO", "AMO sales team requests by Industry Group", "salesVertical", {
+        ${pieCard(summary, "AMO", "Cross-staffed AMO requests by Sales Vertical", "salesVertical", {
           filterKey: "salesVertical",
-          rows: rowsForSalesTeam(summary, "AMO"),
+          rows: amoRows,
           extraFilters: { salesTeam: "AMO" },
-          missing: "No AMO requests found."
+          missing: "No cross-staffed AMO requests found."
         })}
       </div>
       ${crossStaffingExplanation(summary)}
@@ -1874,28 +2917,25 @@
     return `
       <div class="scd-chart-note">
         <strong>How to read this:</strong>
-        These charts show which Industry Groups the selected team is supporting by Sales Team. ${crossStaffingSentence(context, direct)}
+        These charts show cross-staffed requests only: work owned by this SC team that came from another Sales Vertical. ${crossStaffingSentence(context, direct)}
         ${crossStaffingSentence(context, amo)}
       </div>
     `;
   }
 
   function crossStaffingSentence(context, stats) {
-    if (!stats.total) return `${stats.salesTeam} has no requests in this view.`;
-    return `${context} is supporting ${formatNumber(stats.total)} ${stats.salesTeam} requests; ${stats.outsidePct}% are outside its own Industry Group and ${stats.insidePct}% are inside.`;
+    if (!stats.total) return `${stats.salesTeam} has no requests with a usable Sales Vertical in this view.`;
+    return `${context} has ${formatNumber(stats.cross)} cross-staffed ${stats.salesTeam} requests from other Sales Verticals (${stats.crossPct}% of ${formatNumber(stats.total)} ${stats.salesTeam} requests with Sales Vertical).`;
   }
 
   function crossStaffingStats(summary, salesTeam) {
-    const teamRows = rowsForSalesTeam(summary, salesTeam);
-    const outside = teamRows.filter(isCrossStaffedRow).length;
-    const inside = teamRows.length - outside;
+    const teamRows = rowsForSalesTeam(summary, salesTeam).filter((row) => knownSalesVertical(row));
+    const cross = crossStaffedRowsForSalesTeam(summary, salesTeam).length;
     return {
       salesTeam,
       total: teamRows.length,
-      inside,
-      outside,
-      insidePct: teamRows.length ? Math.round((inside / teamRows.length) * 100) : 0,
-      outsidePct: teamRows.length ? Math.round((outside / teamRows.length) * 100) : 0
+      cross,
+      crossPct: teamRows.length ? Math.round((cross / teamRows.length) * 100) : 0
     };
   }
 
@@ -1923,10 +2963,39 @@
     return summary.rows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg(salesTeam));
   }
 
+  function hasSalesVerticalData(rows) {
+    return rows.some((row) => knownSalesVertical(row));
+  }
+
+  function salesVerticalDisplay(row) {
+    if (!row.salesVerticalSource) return "";
+    const raw = normalizeText(row.salesVerticalRaw);
+    if (raw) return displayVertical(raw);
+    return isKnownVertical(row.salesVertical) ? row.salesVertical : "";
+  }
+
+  function knownSalesVertical(row) {
+    if (!row.salesVerticalSource) return "";
+    if (isKnownVertical(row.salesVertical)) return displayVertical(row.salesVertical);
+    const raw = displayVertical(row.salesVerticalRaw);
+    return isKnownVertical(raw) ? raw : "";
+  }
+
+  function crossStaffedRowsForSalesTeam(summary, salesTeam) {
+    const selectedScTeam = isKnownVertical(summary.name) ? summary.name : "";
+    return rowsForSalesTeam(summary, salesTeam).filter((row) => {
+      const salesVertical = knownSalesVertical(row);
+      const scTeam = selectedScTeam || row.vertical;
+      const scKey = industryGroupKey(scTeam);
+      const salesKey = industryGroupKey(salesVertical);
+      return Boolean(scKey && salesKey && scKey !== salesKey);
+    });
+  }
+
   function mapEntriesForRows(rows, field) {
     return Array.from(
       rows.reduce((map, row) => {
-        const value = row[field] || "(blank)";
+        const value = field === "salesVertical" ? knownSalesVertical(row) || "(blank)" : row[field] || "(blank)";
         if (!String(value).startsWith("(")) incrementMap(map, value);
         return map;
       }, new Map()).entries()
@@ -1980,6 +3049,7 @@
       };
     });
     return `
+      ${definitionsBlock(headers)}
       <div class="scd-table-scroll">
         <table class="scd-table" data-scd-sortable>
           <thead><tr>${headers.map((header, idx) => `<th data-scd-sort="${idx}">${escapeHtml(header)}</th>`).join("")}</tr></thead>
@@ -1992,6 +3062,114 @@
         </table>
       </div>
     `;
+  }
+
+  function definitionsBlock(headers) {
+    const definitions = headers.map((header) => ({ header, definition: columnDefinition(header) })).filter((item) => item.definition);
+    if (!definitions.length) return "";
+    return `
+      <details class="scd-definitions">
+        <summary>Definitions</summary>
+        <div class="scd-definition-grid">
+          ${definitions.map((item) => `
+            <div class="scd-definition-item">
+              <strong>${escapeHtml(item.header)}:</strong> ${escapeHtml(item.definition)}
+            </div>
+          `).join("")}
+        </div>
+      </details>
+    `;
+  }
+
+  function columnDefinition(header) {
+    const key = normalizeText(header).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const definitions = {
+      id: "Internal NetSuite SC Request record ID. Click to open the SCR record.",
+      flag: "Highlights special attention signals, currently #gravity requests.",
+      leadsc: "Shows whether this staffed SC is the lead SC or a supporting SC.",
+      shadow: "Shows whether the SC is shadowing the request instead of actively staffing it.",
+      company: "Customer or prospect tied to the SC Request.",
+      vrank: "Customer VRank value from the saved search.",
+      renewalrank: "Renewal ranking value from the saved search.",
+      opportunity: "Opportunity tied to the SC Request.",
+      sc: "Solution Consultant staffed on the request. Badge shows their Legacy Org when available.",
+      legacyorg: "The org the SC came from before the team blend, usually AMO or Direct.",
+      manager: "Current Manager for the staffed SC.",
+      currentmanager: "Current Manager for the staffed SC.",
+      teammanager: "Team Manager/home-team owner from the saved search.",
+      scvp: "SC VP hierarchy value from OML5.",
+      scsrdir: "SC Senior Director hierarchy value from OML6.",
+      scdirector: "SC Director hierarchy value from OML7.",
+      team: "Derived PERI.SCOPE team grouping, such as Team Terra, Team Nautiq, or Team Value.",
+      salesteam: "Sales org or motion requesting the work, such as AMO or Direct.",
+      salesvertical: "Sales-side vertical/industry asking for the request.",
+      salesgvp: "Sales GVP from the saved search.",
+      salesavp: "Sales AVP from the saved search.",
+      salesvp: "Sales VP/VL from the saved search.",
+      industryfamily: "SC-side vertical or industry family owning the staffed SC.",
+      companyindustry: "Customer/prospect industry from the saved search.",
+      industrysubgroup: "More specific child industry grouping under Company Industry.",
+      requesttype: "Request Type from NetSuite, normalized into AMO, Direct, Channel, Value, SCAI, or TCOE where applicable.",
+      deliverable: "Engagement deliverable type. Blank AMO/Direct deliverables are labeled so missing values still count.",
+      oppstatus: "Opportunity status. CLOSE is treated as open, not won.",
+      forecastgrade: "Forecast grade/category from the saved search.",
+      scstatus: "SC engagement status from the saved search.",
+      status: "SC engagement status from the saved search.",
+      probability: "Opportunity probability percentage from the saved search.",
+      arrcommit: "ARR Commit value from the saved search.",
+      mgrcommit: "Manager Commit value from the saved search.",
+      vlcommit: "VL/VP Commit value from the saved search.",
+      pipelinerev: "Open opportunity revenue. Uses GASA Total when available, otherwise ASA Total.",
+      closedrev: "Won opportunity revenue only. Lost and open opportunities are excluded.",
+      revenue: "Total opportunity value on the SCR. Uses GASA Total when available, otherwise ASA Total.",
+      weightedrev: "Probability-adjusted revenue. Open revenue is multiplied by probability, won revenue counts at 100%, and lost revenue counts as $0.",
+      avgrevreq: "Revenue divided by request count.",
+      winrate: "Won opportunities divided by won plus lost opportunities. Open opportunities are excluded.",
+      won: "Count of requests tied to won opportunities.",
+      open: "Count of requests tied to open opportunities, including CLOSE.",
+      lost: "Count of requests tied to lost opportunities.",
+      salesrep: "Sales rep tied to the opportunity/request.",
+      salesmanager: "Front-line Sales Manager tied to the sales rep.",
+      scmhashtags: "SCM hashtag field from NetSuite, used for #gravity tracking.",
+      month: "Month bucket derived from the request date.",
+      volume: "Count of SC Requests in the current view/filter context.",
+      volmo: "Volume per month across the selected dataset date range.",
+      directvolume: "Count of requests from the Direct sales org.",
+      directmo: "Direct request volume per month across the selected dataset date range.",
+      amovolume: "Count of requests from the AMO sales org.",
+      amomo: "AMO request volume per month across the selected dataset date range.",
+      uniquescs: "Distinct staffed Solution Consultants in the current row/context.",
+      avgsc: "Average request volume per unique staffed SC.",
+      staffing: "Share of total staffing volume represented by this row.",
+      request: "Count of SC Requests in the current view/filter context.",
+      requests: "Count of SC Requests in the current view/filter context.",
+      ofshown: "This row's share of the rows currently shown in the portlet.",
+      amo: "Count of requests from the AMO sales org.",
+      direct: "Count of requests from the Direct sales org.",
+      crossstaffed: "Requests where the SC-side vertical differs from the Sales Vertical requesting the work.",
+      crossstaffedpercent: "Cross-staffed requests divided by total requests for the row.",
+      samecurrentmanager: "Requests where Current Manager matches Team Manager.",
+      differentcurrentmanager: "Requests where Current Manager differs from Team Manager.",
+      different: "Different Current Manager divided by total volume for the row.",
+      notes: "Number of populated notes fields available beneath the deal lookup row."
+    };
+    const moreDefinitions = {
+      total: "Total request volume in the current row/context.",
+      blendvol: "Opposite legacy org volume. For Legacy Direct SCs this is AMO work; for Legacy AMO SCs this is Direct work.",
+      blendmo: "Blend volume per month across the selected dataset date range.",
+      weightedblend: "Blend volume with Direct work weighted higher than AMO work because Direct engagements are typically larger and longer.",
+      weightedmo: "Weighted blend score per month across the selected dataset date range.",
+      blend: "Blend volume divided by total volume for the row.",
+      momchange: "Month-over-month percentage change versus the prior month shown.",
+      customers: "Distinct customer/prospect count in the current row/context.",
+      reqcustomer: "Requests divided by distinct customers.",
+      customerspercent: "Share of distinct customers represented by this row.",
+      salesindustry: "Sales-side industry or vertical tied to the request.",
+      gravityrequests: "Count of requests flagged with #gravity in SCM Hashtags.",
+      gravitypercent: "Share of #gravity requests represented by this row.",
+      forecastgrade: "Forecast grade/category from the saved search."
+    };
+    return definitions[key] || moreDefinitions[key] || "Saved-search field or calculated dashboard value shown for this portlet.";
   }
 
   function tableCell(cell, heatRange) {
@@ -2110,12 +3288,19 @@
         if (!value) return true;
         if (key === "requestType") return requestTypeLabel(row) === value;
         if (key === "salesTeam") return normalizeOrg(row.salesTeam || row.requestType) === normalizeOrg(value);
+        if (key === "salesMotion") return salesMotionBucket(row) === value;
         if (key === "leadSc") return value === "true" ? isLeadScValue(row.leadSc) : !isLeadScValue(row.leadSc);
+        if (key === "shadow") return value === "true" ? isShadowValue(row.shadow) : !isShadowValue(row.shadow);
+        if (key === "managerMismatch") return value === "true" ? normalizeText(row.manager) !== normalizeText(row.teamManager) : normalizeText(row.manager) === normalizeText(row.teamManager);
         if (key === "oppBucket") return opportunityBucket(row.oppStatus) === value;
         if (key === "deliverable") return deliverableLabel(row) === value;
         if (key === "crossStaffed") return value === "true" ? isCrossStaffedRow(row) : !isCrossStaffedRow(row);
         if (key === "gravity") return value === "true" ? isGravityRow(row) : !isGravityRow(row);
         if (key === "salesRep") return normalizeText(row.salesRep || "(blank)") === normalizeText(value);
+        if (key === "vrank") return normalizeText(row.vrank) === normalizeText(value);
+        if (key === "renewalRank") return normalizeText(row.renewalRank) === normalizeText(value);
+        if (key === "forecastGrade") return forecastGradeLabel(row) === value;
+        if (key === "industrySubgroup") return normalizeText(row.industrySubgroup) === normalizeText(value);
         return normalizeText(row[key]) === normalizeText(value);
       })
     );
@@ -2140,10 +3325,14 @@
       const directType = requestTypes.find((type) => /direct/i.test(type));
       const amo = amoType ? metricFor(summary, amoType) : { volume: 0, unique: 0, avg: 0 };
       const direct = directType ? metricFor(summary, directType) : { volume: 0, unique: 0, avg: 0 };
+      const drillMonthCount = monthCountForRows(filteredRows);
       const totalRevenue = sumRows(filteredRows, rowRevenue);
       const totalPipelineRevenue = sumRows(filteredRows, pipelineRevenue);
       const totalClosedRevenue = sumRows(filteredRows, closedRevenue);
       const totalWeightedRevenue = sumRows(filteredRows, weightedRevenue);
+      const totalArrCommit = sumRows(filteredRows, arrCommit);
+      const totalMgrCommit = sumRows(filteredRows, mgrCommit);
+      const totalVlCommit = sumRows(filteredRows, vlCommit);
 
       root.innerHTML = `
         <div class="scd-modal-card" role="dialog" aria-modal="true" aria-label="Drilldown Detail">
@@ -2163,8 +3352,11 @@
             <div class="scd-kpis">
               ${kpi("Requests", filteredRows.length)}
               ${kpi("Unique SCs", summary.consultants.size)}
-              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs`)}
-              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs`)}
+              ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs / ${monthlyVolumeLabel(amo.volume, drillMonthCount)}`)}
+              ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs / ${monthlyVolumeLabel(direct.volume, drillMonthCount)}`)}
+              ${kpi("ARR Commit", formatCurrency(totalArrCommit))}
+              ${kpi("MGR Commit", formatCurrency(totalMgrCommit))}
+              ${kpi("VL Commit", formatCurrency(totalVlCommit))}
               ${kpi("Pipeline Rev", formatCurrency(totalPipelineRevenue))}
               ${kpi("Closed Rev", formatCurrency(totalClosedRevenue))}
               ${kpi("Revenue", formatCurrency(totalRevenue))}
@@ -2186,6 +3378,14 @@
               <div class="scd-panel">
                 <div class="scd-panel-title">Gravity Requests</div>
                 ${gravityPortlet(summary)}
+              </div>
+              <div class="scd-panel">
+                <div class="scd-panel-title">Customers by VRank</div>
+                ${customersByVRankTable(summary)}
+              </div>
+              <div class="scd-panel">
+                <div class="scd-panel-title">Customers by Renewal Rank</div>
+                ${customersByRenewalRankTable(summary)}
               </div>
             </div>
             <div class="scd-panel scd-deep-grid">
@@ -2239,9 +3439,11 @@
     return {
       status: "all",
       leadSc: "all",
+      shadow: "all",
       month: "all",
       deliverable: "all",
-      industry: "all"
+      industry: "all",
+      industrySubgroup: "all"
     };
   }
 
@@ -2250,12 +3452,14 @@
       <div class="scd-filterbar">
         ${filterSelect("Status", "status", uniqueSorted(rows, "status"), filters.status)}
         ${filterSelect("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc)}
+        ${filterSelect("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow)}
         ${filterSelect("Date range", "month", sortedMonthKeys(rows.reduce((map, row) => {
           incrementMap(map, row.month || "(blank)");
           return map;
         }, new Map())), filters.month)}
         ${filterSelect("Deliverable", "deliverable", uniqueSortedValues(rows.map(deliverableLabel)), filters.deliverable)}
         ${filterSelect("Industry", "industry", uniqueSorted(rows, "industry"), filters.industry)}
+        ${filterSelect("Industry Subgroup", "industrySubgroup", uniqueSorted(rows, "industrySubgroup"), filters.industrySubgroup)}
         <button class="scd-tab" type="button" data-scd-clear-detail-filters>Clear filters</button>
       </div>
     `;
@@ -2263,6 +3467,32 @@
 
   function filterSelect(label, key, options, value) {
     return filterSelectWithAttr(label, key, options, value, "data-scd-detail-filter");
+  }
+
+  function multiFilterSelect(label, key, options, selectedValues) {
+    if (!options.length) return "";
+    const selectedSet = Array.isArray(selectedValues) ? new Set(selectedValues) : null;
+    const isAll = !selectedSet;
+    const summary = isAll
+      ? `${label}: All`
+      : selectedSet.size === 0
+        ? `${label}: None`
+        : selectedSet.size <= 2
+          ? `${label}: ${Array.from(selectedSet).join(", ")}`
+          : `${label}: ${selectedSet.size} selected`;
+    return `
+      <details class="scd-filter-multi">
+        <summary>${escapeHtml(summary)}</summary>
+        <div class="scd-filter-multi-options">
+          ${options.map((option) => `
+            <label class="scd-filter-multi-option">
+              <input type="checkbox" data-scd-dashboard-multi="${escapeHtml(key)}" value="${escapeHtml(option)}"${isAll || selectedSet.has(option) ? " checked" : ""}>
+              <span>${escapeHtml(option)}</span>
+            </label>
+          `).join("")}
+        </div>
+      </details>
+    `;
   }
 
   function filterSelectWithAttr(label, key, options, value, attrName) {
@@ -2283,6 +3513,25 @@
     return uniqueSortedValues(rows.map((row) => normalizeText(row[field])));
   }
 
+  function requestTypeOptionsForRows(rows) {
+    const order = ["AMO", "Direct", "Channel AMO", "Channel Direct", "Value Management", "Technology COE", "SCAI Support"];
+    const values = uniqueSortedValues(rows.map(requestTypeLabel));
+    return values.sort((a, b) => {
+      const ai = order.indexOf(a);
+      const bi = order.indexOf(b);
+      if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      return a.localeCompare(b);
+    });
+  }
+
+  function knownVerticalOptions(rows) {
+    const present = new Set(rows.map((row) => row.vertical).filter(isKnownVertical).map(displayVertical));
+    return CONFIG.preferredVerticalOrder
+      .map(displayVertical)
+      .filter((vertical, index, all) => all.indexOf(vertical) === index)
+      .filter((vertical) => present.has(vertical));
+  }
+
   function uniqueSortedValues(values) {
     return Array.from(new Set(values.filter((value) => value && !value.startsWith("(")))).sort((a, b) => a.localeCompare(b));
   }
@@ -2292,9 +3541,12 @@
       if (filters.status !== "all" && normalizeText(row.status) !== filters.status) return false;
       if (filters.leadSc === "Lead SC Only" && !isLeadScValue(row.leadSc)) return false;
       if (filters.leadSc === "Supporting SC Only" && isLeadScValue(row.leadSc)) return false;
+      if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
+      if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
       if (filters.month !== "all" && normalizeText(row.month) !== filters.month) return false;
       if (filters.deliverable !== "all" && deliverableLabel(row) !== filters.deliverable) return false;
       if (filters.industry !== "all" && normalizeText(row.industry) !== filters.industry) return false;
+      if (filters.industrySubgroup !== "all" && normalizeText(row.industrySubgroup) !== filters.industrySubgroup) return false;
       return true;
     });
   }
@@ -2302,26 +3554,40 @@
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Company", "Opportunity", "SC", "Legacy Org", "Sales Team", "Sales Vertical", "Manager", "Team", "Industry Family", "Company Industry", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Shadow", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
         leadScCell(row),
+        shadowCell(row),
         row.company,
+        { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
+        { display: row.renewalRank, value: row.renewalRank, drill: { renewalRank: row.renewalRank } },
         row.opportunity,
         { display: scLabel(detailSummary, row.consultant), value: row.consultant, html: true, drill: { consultant: row.consultant } },
         row.legacyOrg,
+        row.manager,
+        row.teamManager,
+        row.oml5,
+        row.oml6,
+        row.oml7,
+        row.team,
         row.salesTeam,
         row.salesVertical,
-        row.manager,
-        row.team,
+        row.salesGvp,
+        row.salesAvp,
+        row.salesVp,
         row.vertical,
         row.industry,
+        row.industrySubgroup,
         requestTypeLabel(row),
         deliverableLabel(row),
         row.oppStatus,
         row.status,
         row.probability === null ? "" : `${(row.probability * 100).toFixed(0)}%`,
+        formatCurrency(arrCommit(row)),
+        formatCurrency(mgrCommit(row)),
+        formatCurrency(vlCommit(row)),
         formatCurrency(pipelineRevenue(row)),
         formatCurrency(closedRevenue(row)),
         formatCurrency(rowRevenue(row)),
@@ -2333,6 +3599,116 @@
     ) + (rows.length > 500 ? `<div class="scd-warning">Showing first 500 of ${formatNumber(rows.length)} matching requests.</div>` : "");
   }
 
+  function dealLookupDetailTable(rows) {
+    const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
+    const shownRows = rows.slice(0, 500);
+    const headers = ["ID", "Flag", "Lead SC", "Shadow", "Company", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
+    return `
+      ${definitionsBlock(headers)}
+      <div class="scd-table-scroll">
+        <table class="scd-table">
+          <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+          <tbody>
+            ${shownRows
+              .map((row) => {
+                const noteEntries = rowNoteEntries(row);
+                const cells = [
+                  requestRecordLink(row.internalId),
+                  gravityFlagCell(row),
+                  leadScCell(row),
+                  shadowCell(row),
+                  row.company,
+                  { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
+                  { display: row.renewalRank, value: row.renewalRank, drill: { renewalRank: row.renewalRank } },
+                  row.opportunity,
+                  { display: scLabel(detailSummary, row.consultant), value: row.consultant, html: true, drill: { consultant: row.consultant } },
+                  row.manager,
+                  row.teamManager,
+                  row.oml5,
+                  row.oml6,
+                  row.oml7,
+                  row.salesTeam,
+                  row.salesVertical,
+                  row.salesGvp,
+                  row.salesAvp,
+                  row.salesVp,
+                  row.industry,
+                  row.industrySubgroup,
+                  requestTypeLabel(row),
+                  deliverableLabel(row),
+                  row.oppStatus,
+                  row.forecastGrade,
+                  row.status,
+                  formatCurrency(arrCommit(row)),
+                  formatCurrency(mgrCommit(row)),
+                  formatCurrency(vlCommit(row)),
+                  formatCurrency(pipelineRevenue(row)),
+                  formatCurrency(rowRevenue(row)),
+                  formatCurrency(weightedRevenue(row)),
+                  row.salesRep,
+                  row.salesManager,
+                  row.month,
+                  { display: `${formatNumber(noteEntries.length)} notes`, value: noteEntries.length }
+                ];
+                return `
+                  <tr>${cells.map((cell) => tableCell(cell, { min: 0, max: 0 })).join("")}</tr>
+                  <tr class="scd-notes-row"><td colspan="${headers.length}">${notesPanel(row, noteEntries)}</td></tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      ${rows.length > 500 ? `<div class="scd-warning">Showing first 500 of ${formatNumber(rows.length)} matching requests.</div>` : ""}
+    `;
+  }
+
+  function rowNoteEntries(row) {
+    const notes = row.notes || {};
+    return [
+      ["Engagement Notes", notes.engagementNotes],
+      ["Direct Rep Notes", notes.directRepNotes],
+      ["AMO Rep Notes", notes.amoRepNotes],
+      ["RM Summary", notes.rmSummary],
+      ["BANT", notes.bant],
+      ["MEDDICC", notes.meddicc],
+      ["MEDDICC Qualified", notes.meddiccQualified],
+      ["SC Manager Notes", notes.scManagerNotes],
+      ["SC Manager Notes 2", notes.scManagerNotes2],
+      ["SC Manager Notes 3", notes.scManagerNotes3]
+    ].filter(([, value]) => normalizeText(value));
+  }
+
+  function notesPanel(row, noteEntries) {
+    const title = `${row.company || "SCR"}${row.opportunity ? ` · ${row.opportunity}` : ""}`;
+    if (!noteEntries.length) {
+      return `
+        <details class="scd-notes-details">
+          <summary>Notes for ${escapeHtml(title)}: none found</summary>
+          <div class="scd-notes-grid"><div class="scd-muted">No notes fields were populated for this SCR in the export.</div></div>
+        </details>
+      `;
+    }
+    return `
+      <details class="scd-notes-details">
+        <summary>Notes for ${escapeHtml(title)}: ${formatNumber(noteEntries.length)} populated fields</summary>
+        <div class="scd-notes-grid">
+          ${noteEntries
+            .map(
+              ([label, value]) => `
+                <div class="scd-note-card">
+                  <div class="scd-note-label">${escapeHtml(label)}</div>
+                  <div class="scd-note-text">${escapeHtml(value)}</div>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+      </details>
+    `;
+  }
+
   function leadScCell(row) {
     const isLead = isLeadScValue(row.leadSc);
     return {
@@ -2340,6 +3716,16 @@
       value: isLead ? 1 : 0,
       html: true,
       drill: { leadSc: isLead ? "true" : "false" }
+    };
+  }
+
+  function shadowCell(row) {
+    const isShadow = isShadowValue(row.shadow);
+    return {
+      display: `<span class="scd-badge ${isShadow ? "scd-badge-support" : "scd-badge-lead"}">${escapeHtml(isShadow ? "Shadow" : "Active")}</span>`,
+      value: isShadow ? 1 : 0,
+      html: true,
+      drill: { shadow: isShadow ? "true" : "false" }
     };
   }
 
@@ -2367,21 +3753,32 @@
   }
 
   function staffedScTable(summary) {
+    const summaryMonths = monthCountForRows(summary.rows);
     return simpleTable(
-      ["SC", "Volume", "Direct Volume", "AMO Volume", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
+      ["SC", "Volume", "Vol / Mo", "Direct Volume", "Direct / Mo", "AMO Volume", "AMO / Mo", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
       sortedEntries(summary.byConsultant).map(([name, volume]) => {
         const direct = salesTeamVolumeFor(summary, name, "Direct");
         const amo = salesTeamVolumeFor(summary, name, "AMO");
         const scRows = summary.rows.filter((row) => normalizeText(row.consultant) === normalizeText(name));
+        const months = summaryMonths;
         const pipeline = sumRows(scRows, pipelineRevenue);
         const closed = sumRows(scRows, closedRevenue);
         const revenue = sumRows(scRows, rowRevenue);
         const weighted = sumRows(scRows, weightedRevenue);
+        const arrCommitTotal = sumRows(scRows, arrCommit);
+        const mgrCommitTotal = sumRows(scRows, mgrCommit);
+        const vlCommitTotal = sumRows(scRows, vlCommit);
         return [
           { display: scLabel(summary, name), value: name, html: true, drill: { consultant: name } },
           { display: formatNumber(volume), value: volume, heat: true, drill: { consultant: name } },
+          { display: monthlyVolumeLabel(volume, months), value: volume / months, heat: true, drill: { consultant: name } },
           { display: formatNumber(direct), value: direct, heat: true, drill: { consultant: name, salesTeam: "Direct" } },
+          { display: monthlyVolumeLabel(direct, months), value: direct / months, heat: true, drill: { consultant: name, salesTeam: "Direct" } },
           { display: formatNumber(amo), value: amo, heat: true, drill: { consultant: name, salesTeam: "AMO" } },
+          { display: monthlyVolumeLabel(amo, months), value: amo / months, heat: true, drill: { consultant: name, salesTeam: "AMO" } },
+          { display: formatCurrency(arrCommitTotal), value: arrCommitTotal, heat: true, drill: { consultant: name } },
+          { display: formatCurrency(mgrCommitTotal), value: mgrCommitTotal, heat: true, drill: { consultant: name } },
+          { display: formatCurrency(vlCommitTotal), value: vlCommitTotal, heat: true, drill: { consultant: name } },
           { display: formatCurrency(pipeline), value: pipeline, heat: true, drill: { consultant: name, oppBucket: "Open" } },
           { display: formatCurrency(closed), value: closed, heat: true, drill: { consultant: name, oppBucket: "Won" } },
           { display: formatCurrency(revenue), value: revenue, heat: true, drill: { consultant: name } },
@@ -2475,27 +3872,31 @@
             <div class="scd-title-block">
               <div class="scd-title">${escapeHtml(CONFIG.title)}</div>
               <div class="scd-tagline">Your tool for Performance &amp; Engagement, Reporting &amp; Insights!</div>
-              <div class="scd-subtitle">Saved search ${escapeHtml(currentSearchLabel())}</div>
+              <div class="scd-subtitle">${escapeHtml(versionLabel())} - Saved search ${escapeHtml(currentSearchLabel())}</div>
             </div>
           </div>
           <div class="scd-actions">
             <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
+            <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
+            <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
             <button class="scd-tab" type="button" data-scd-refresh>Refresh</button>
             <button class="scd-tab" type="button" data-scd-close>Close</button>
           </div>
         </div>
         <div class="scd-body">
           <div class="scd-warning">
-            <strong>Dashboard data was not found on this page.</strong><br>
+            <strong>Load the NetSuite export to build the dashboard.</strong><br>
             ${escapeHtml(message)}
             <div class="scd-muted" style="margin-top:8px">
-              This usually means NetSuite did not expose the result table to the script, the page is still loading, or this role sees different saved-search columns. Export the saved search to CSV, then use <strong>Load Export File</strong>.
+              NetSuite is not exposing a complete results table to the script on this page. Export the saved search to CSV, then use <strong>Load Export File</strong>.
             </div>
           </div>
         </div>
       </div>
     `;
     root.querySelector("[data-scd-load-file]")?.addEventListener("click", promptForExportFile);
+    root.querySelector("[data-scd-net-suite-export]")?.addEventListener("click", reloadNetSuiteExport);
+    root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
     root.querySelector("[data-scd-refresh]")?.addEventListener("click", boot);
     root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
     document.body.appendChild(root);
@@ -2529,6 +3930,39 @@
     input.click();
   }
 
+  async function reloadNetSuiteExport() {
+    const clicked = triggerNetSuiteCsvDownload();
+    showWarning(
+      clicked
+        ? "SC Engagement Dashboard: NetSuite's CSV export button was clicked. When the latest CSV finishes downloading, use Load Export File to rebuild the dashboard from it."
+        : "SC Engagement Dashboard: could not find NetSuite's CSV export button on this page. Use NetSuite's CSV icon manually, then Load Export File."
+    );
+  }
+
+  function triggerNetSuiteCsvDownload() {
+    const candidates = Array.from(document.querySelectorAll("[data-button-code='export'], [aria-label*='Export'][aria-label*='CSV'], [title*='Export'][title*='CSV'], .uir-list-export-csv"));
+    const button = candidates.find((element) => {
+      const text = normalizeText(
+        [
+          element.innerText,
+          element.title,
+          element.getAttribute("aria-label"),
+          element.getAttribute("data-nsps-label"),
+          element.getAttribute("class"),
+          element.getAttribute("data-button-code")
+        ].filter(Boolean).join(" ")
+      );
+      return /export/i.test(text) && /csv|uir-list-export-csv|button-code/i.test(text);
+    }) || candidates[0];
+    if (!button) return false;
+    button.click();
+    return true;
+  }
+
+  function openScriptUpdate() {
+    window.open(CONFIG.updateUrl, "_blank", "noopener,noreferrer");
+  }
+
   function showLoading(message) {
     installStyles();
     document.getElementById(ROOT_ID)?.remove();
@@ -2541,8 +3975,11 @@
 
   function ensureLauncher() {
     installStyles();
+    if (!isTargetSavedSearch()) {
+      document.getElementById(LAUNCHER_ID)?.remove();
+      return;
+    }
     if (document.getElementById(LAUNCHER_ID)) return;
-    document.getElementById(LAUNCHER_ID)?.remove();
 
     const button = document.createElement("button");
     button.id = LAUNCHER_ID;
@@ -2556,7 +3993,8 @@
 
   async function boot() {
     if (!isTargetSavedSearch()) {
-      if (CONFIG.alwaysShowLauncherOnNetSuite) ensureLauncher();
+      document.getElementById(ROOT_ID)?.remove();
+      document.getElementById(LAUNCHER_ID)?.remove();
       return;
     }
     ensureLauncher();
@@ -2577,13 +4015,13 @@
 
     const candidate = findSavedSearchTable();
     if (!candidate) {
-      showWarning("Could not find a visible saved-search result table with SC Vertical, Request Type, and Solution Consultant columns.");
+      showWarning("No complete visible results table was found with SC Vertical/Vertical (Employee), Request Type, and Solution Consultant columns. Industry tabs require a populated SC-side vertical field.");
       return;
     }
 
     const { rows, error } = readRows(candidate.table, candidate.headers);
     if (error) {
-      showWarning(`SC Engagement Dashboard: ${error}`);
+      showWarning(error);
       return;
     }
     if (!rows.length) {
@@ -2595,7 +4033,12 @@
   }
 
   function initLauncherOnly() {
-    if (isTargetSavedSearch() || CONFIG.alwaysShowLauncherOnNetSuite) ensureLauncher();
+    if (isTargetSavedSearch()) {
+      ensureLauncher();
+    } else {
+      document.getElementById(LAUNCHER_ID)?.remove();
+      document.getElementById(ROOT_ID)?.remove();
+    }
   }
 
   if (document.readyState === "loading") {
