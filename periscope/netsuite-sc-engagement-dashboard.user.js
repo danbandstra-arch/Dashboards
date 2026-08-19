@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.6
+// @version      2.13.7
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.6",
+    version: "2.13.7",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -713,6 +713,13 @@
   }
 
   function findCsvExportUrl() {
+    const exportControl = document.querySelector("button#export") ||
+      Array.from(document.querySelectorAll("[data-button-code='export'], button[name='export'], .uir-list-export-csv"))
+        .find((element) => element.getAttribute("onclick"));
+    const exportHandler = exportControl?.getAttribute("onclick") || "";
+    const exportUrl = extractNetSuiteExportUrl(exportHandler);
+    if (exportUrl) return new URL(exportUrl, window.location.origin).toString();
+
     const candidates = Array.from(document.querySelectorAll("a, button, input, img, div[role='button'], div[data-button-code]"))
       .map((element) => {
         const text = normalizeText(
@@ -738,7 +745,16 @@
 
     for (const candidate of candidates) {
       const directUrl = candidate.href || extractUrlFromText(candidate.onclick) || extractUrlFromText(candidate.text);
-      if (directUrl) return new URL(directUrl, window.location.href).toString();
+      if (directUrl) {
+        const url = new URL(directUrl, window.location.href);
+        if (/savedsearchresults\.csv|searchresults\.csv/i.test(url.pathname)) {
+          appendNetSuiteSearchState(url);
+          url.searchParams.set("csv", "Export");
+          url.searchParams.set("OfficeXML", "F");
+          url.searchParams.set("size", CONFIG.exportSize);
+          return url.toString();
+        }
+      }
     }
 
     const searchId = new URLSearchParams(window.location.search).get("searchid");
@@ -749,21 +765,54 @@
   }
 
   function buildExportUrl() {
-    const guessed = new URL(window.location.href);
-    const searchId = guessed.searchParams.get("searchid");
+    const url = new URL(window.location.href);
+    const searchId = url.searchParams.get("searchid");
     if (!searchId) return null;
 
-    guessed.searchParams.set("searchid", searchId);
-    guessed.searchParams.set("saverun", "T");
-    guessed.searchParams.set("style", "REPORT");
-    guessed.searchParams.set("report", "T");
-    guessed.searchParams.set("csv", "HTML");
-    guessed.searchParams.set("print", "csv");
-    guessed.searchParams.set("OfficeXML", "F");
-    guessed.searchParams.set("pdf", "");
-    guessed.searchParams.set("twbx", "F");
-    guessed.searchParams.set("size", CONFIG.exportSize);
-    return guessed.toString();
+    url.pathname = "/app/common/search/savedsearchresults.csv";
+    appendNetSuiteSearchState(url);
+    url.searchParams.set("searchid", searchId);
+    url.searchParams.set("saverun", "T");
+    url.searchParams.set("csv", "Export");
+    url.searchParams.set("OfficeXML", "F");
+    url.searchParams.set("size", CONFIG.exportSize);
+    return url.toString();
+  }
+
+  function extractNetSuiteExportUrl(handler) {
+    const normalized = String(handler || "")
+      .replace(/\\x26/g, "&")
+      .replace(/\\\//g, "/");
+    const match = normalized.match(/(\/app\/common\/search\/(?:saved)?searchresults\.csv\?[^'"\s)]+)/i);
+    if (!match) return null;
+    const url = new URL(match[1], window.location.origin);
+    appendNetSuiteSearchState(url);
+    url.searchParams.set("csv", "Export");
+    url.searchParams.set("OfficeXML", "F");
+    url.searchParams.set("size", CONFIG.exportSize);
+    return url.toString();
+  }
+
+  function appendNetSuiteSearchState(url) {
+    const form = window.parent?.document.forms?.footer_actions_form || document.forms?.footer_actions_form;
+    if (!form) return;
+
+    Array.from(form.elements).forEach((element) => {
+      const name = element.name;
+      if (!name || name.startsWith("inpt_") || name === "frame" || element.disabled) return;
+      if (element.type === "radio" && !element.checked) return;
+      if (element.type === "checkbox") {
+        url.searchParams.append(name, element.checked ? "T" : "F");
+        return;
+      }
+      if (element.type === "select-multiple") {
+        Array.from(element.selectedOptions).forEach((option) => url.searchParams.append(name, option.value));
+        return;
+      }
+      if (["select-one", "text", "hidden", "date"].includes(element.type)) {
+        url.searchParams.append(name, element.value);
+      }
+    });
   }
 
   function extractUrlFromText(text) {
@@ -4140,15 +4189,23 @@
       showLoading("SC Engagement Dashboard: loading export data...");
     }
 
+    let csvFallbackError = "";
     try {
       const exportResult = await tryReadCsvExport();
       if (exportResult.rows?.length) {
         renderDashboard(summarize(exportResult.rows), exportResult.rows.length, exportResult.source || "CSV export", new Date());
         return;
       }
+      csvFallbackError = exportResult.error || "CSV export returned no readable rows.";
       console.warn("SC Dashboard CSV export fallback:", exportResult.error);
     } catch (error) {
+      csvFallbackError = error?.message || String(error);
       console.warn("SC Dashboard CSV export fallback:", error);
+    }
+
+    if (keepDashboard && csvFallbackError) {
+      setRefreshFeedback(`Hard Refresh failed: ${csvFallbackError}`, true);
+      return;
     }
 
     const candidate = findSavedSearchTable();
@@ -4172,7 +4229,7 @@
       return;
     }
 
-    renderDashboard(summarize(rows), rows.length, "visible table", new Date());
+    renderDashboard(summarize(rows), rows.length, csvFallbackError ? "visible table after CSV fallback" : "visible table", new Date());
   }
 
   function initLauncherOnly() {
