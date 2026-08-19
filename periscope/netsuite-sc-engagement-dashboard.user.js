@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.4
+// @version      2.13.5
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.4",
+    version: "2.13.5",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -1819,6 +1819,10 @@
               <div class="scd-panel-title">Deal Analysis by Deliverable</div>
               ${dealAnalysisTable(active)}
             </div>
+            <div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Renewal Portlet</div>
+              ${renewalPortlet(active)}
+            </div>
             ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Company Industry</div>
               ${rankedTable(active.byIndustry, "Company Industry", 0, active.total)}
@@ -2708,6 +2712,110 @@
         { display: formatCurrency(totals.arrCommit), value: totals.arrCommit },
         { display: formatCurrency(totals.mgrCommit), value: totals.mgrCommit },
         { display: formatCurrency(totals.vlCommit), value: totals.vlCommit },
+        { display: formatCurrency(totals.pipelineRevenue), value: totals.pipelineRevenue },
+        { display: formatCurrency(totals.closedRevenue), value: totals.closedRevenue },
+        { display: formatCurrency(totals.totalRevenue), value: totals.totalRevenue },
+        { display: formatCurrency(totals.weightedRevenue), value: totals.weightedRevenue },
+        { display: formatCurrency(totals.requests ? totals.totalRevenue / totals.requests : 0), value: totals.requests ? totals.totalRevenue / totals.requests : 0 },
+        { display: totalWinRate === null ? "-" : `${(totalWinRate * 100).toFixed(0)}%`, value: totalWinRate },
+        { display: formatNumber(totals.won), value: totals.won },
+        { display: formatNumber(totals.open), value: totals.open },
+        { display: formatNumber(totals.lost), value: totals.lost }
+      ]
+    );
+  }
+
+  function renewalPortlet(summary) {
+    const renewalRows = summary.rows.filter((row) => normalizeText(deliverableLabel(row)).toLowerCase() === "revenue save/renewal");
+    if (!renewalRows.length) {
+      return `<div class="scd-warning">No Revenue Save/Renewal requests found in this view.</div>`;
+    }
+    const grouped = new Map();
+    renewalRows.forEach((row) => {
+      const ranking = normalizeText(row.renewalRank);
+      const renewalRank = ranking && !ranking.startsWith("(") ? ranking : "(blank renewal ranking)";
+      if (!grouped.has(renewalRank)) {
+        grouped.set(renewalRank, {
+          renewalRank,
+          requests: 0,
+          consultants: new Set(),
+          amo: 0,
+          direct: 0,
+          pipelineRevenue: 0,
+          closedRevenue: 0,
+          totalRevenue: 0,
+          weightedRevenue: 0,
+          won: 0,
+          open: 0,
+          lost: 0
+        });
+      }
+      const metric = grouped.get(renewalRank);
+      const salesOrg = normalizeOrg(row.salesTeam || row.requestType);
+      const bucket = opportunityBucket(row.oppStatus);
+      metric.requests += 1;
+      metric.consultants.add(normalizeText(row.consultant) || "(blank)");
+      if (salesOrg === "AMO") metric.amo += 1;
+      if (salesOrg === "Direct") metric.direct += 1;
+      metric.pipelineRevenue += pipelineRevenue(row);
+      metric.closedRevenue += closedRevenue(row);
+      metric.totalRevenue += rowRevenue(row);
+      metric.weightedRevenue += weightedRevenue(row);
+      if (bucket === "Won") metric.won += 1;
+      else if (bucket === "Lost") metric.lost += 1;
+      else if (bucket === "Open") metric.open += 1;
+    });
+
+    const entries = Array.from(grouped.values()).sort((a, b) => b.requests - a.requests || a.renewalRank.localeCompare(b.renewalRank));
+    const totals = entries.reduce(
+      (sum, metric) => {
+        sum.requests += metric.requests;
+        metric.consultants.forEach((consultant) => sum.consultants.add(consultant));
+        sum.amo += metric.amo;
+        sum.direct += metric.direct;
+        sum.pipelineRevenue += metric.pipelineRevenue;
+        sum.closedRevenue += metric.closedRevenue;
+        sum.totalRevenue += metric.totalRevenue;
+        sum.weightedRevenue += metric.weightedRevenue;
+        sum.won += metric.won;
+        sum.open += metric.open;
+        sum.lost += metric.lost;
+        return sum;
+      },
+      { requests: 0, consultants: new Set(), amo: 0, direct: 0, pipelineRevenue: 0, closedRevenue: 0, totalRevenue: 0, weightedRevenue: 0, won: 0, open: 0, lost: 0 }
+    );
+    const totalClosed = totals.won + totals.lost;
+    const totalWinRate = totalClosed ? totals.won / totalClosed : null;
+
+    return simpleTable(
+      ["Renewal Ranking", "Requests", "Unique SCs", "AMO", "Direct", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req", "Win Rate", "Won", "Open", "Lost"],
+      entries.map((metric) => {
+        const closed = metric.won + metric.lost;
+        const winRate = closed ? metric.won / closed : null;
+        const drill = { deliverable: "Revenue Save/Renewal", renewalRank: metric.renewalRank };
+        return [
+          { display: metric.renewalRank, value: metric.renewalRank, drill },
+          { display: formatNumber(metric.requests), value: metric.requests, heat: true, drill },
+          { display: formatNumber(metric.consultants.size), value: metric.consultants.size, heat: true, drill },
+          { display: formatNumber(metric.amo), value: metric.amo, heat: true, drill: { ...drill, salesTeam: "AMO" } },
+          { display: formatNumber(metric.direct), value: metric.direct, heat: true, drill: { ...drill, salesTeam: "Direct" } },
+          { display: formatCurrency(metric.pipelineRevenue), value: metric.pipelineRevenue, heat: true, drill: { ...drill, oppBucket: "Open" } },
+          { display: formatCurrency(metric.closedRevenue), value: metric.closedRevenue, heat: true, drill: { ...drill, oppBucket: "Won" } },
+          { display: formatCurrency(metric.totalRevenue), value: metric.totalRevenue, heat: true, drill },
+          { display: formatCurrency(metric.weightedRevenue), value: metric.weightedRevenue, heat: true, drill },
+          { display: formatCurrency(metric.requests ? metric.totalRevenue / metric.requests : 0), value: metric.requests ? metric.totalRevenue / metric.requests : 0, heat: true, drill },
+          { display: winRate === null ? "-" : `${(winRate * 100).toFixed(0)}%`, value: winRate, heat: winRate !== null, drill },
+          { display: formatNumber(metric.won), value: metric.won, drill: { ...drill, oppBucket: "Won" } },
+          { display: formatNumber(metric.open), value: metric.open, drill: { ...drill, oppBucket: "Open" } },
+          { display: formatNumber(metric.lost), value: metric.lost, drill: { ...drill, oppBucket: "Lost" } }
+        ];
+      }),
+      [
+        { display: "Total", value: "Total" },
+        { display: formatNumber(totals.requests), value: totals.requests },
+        { display: formatNumber(totals.consultants.size), value: totals.consultants.size },
+        { display: formatNumber(totals.amo), value: totals.amo },
+        { display: formatNumber(totals.direct), value: totals.direct },
         { display: formatCurrency(totals.pipelineRevenue), value: totals.pipelineRevenue },
         { display: formatCurrency(totals.closedRevenue), value: totals.closedRevenue },
         { display: formatCurrency(totals.totalRevenue), value: totals.totalRevenue },
