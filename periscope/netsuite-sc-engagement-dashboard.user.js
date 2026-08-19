@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.7
+// @version      2.13.8
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.7",
+    version: "2.13.8",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -1225,6 +1225,31 @@
         justify-content: flex-end;
         margin-left: auto;
       }
+      .scd-action-menu {
+        position: relative;
+        display: inline-flex;
+      }
+      .scd-action-menu-panel {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 8px);
+        z-index: 1000001;
+        min-width: 190px;
+        display: none;
+        padding: 6px;
+        border: 1px solid rgba(67, 124, 148, 0.28);
+        border-radius: 12px;
+        background: rgba(255, 252, 247, 0.98);
+        box-shadow: 0 18px 42px rgba(46, 39, 35, 0.18);
+      }
+      .scd-action-menu[data-open="true"] .scd-action-menu-panel {
+        display: grid;
+        gap: 4px;
+      }
+      .scd-action-menu-panel .scd-tab {
+        justify-content: flex-start;
+        width: 100%;
+      }
       .scd-tabs {
         display: flex;
         flex-wrap: wrap;
@@ -1768,7 +1793,7 @@
     root.className = "scd-modal-root";
 
     const views = [{ name: "Deal Lookup", isDealLookup: true }, summaryData.org, ...(summaryData.teams || []), ...summaryData.verticals];
-    let activeIndex = 0;
+    let activeIndex = Math.max(0, views.findIndex((view) => view.name === "All Verticals"));
     let dashboardFilters = makeEmptyDashboardFilters();
     let dealLookupFilters = makeEmptyDealLookupFilters();
 
@@ -1806,10 +1831,15 @@
               </div>
             </div>
             <div class="scd-actions">
-              <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
-              <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
-              <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
-              <button class="scd-tab" type="button" data-scd-refresh>Hard Refresh</button>
+              <div class="scd-action-menu" data-scd-data-menu>
+                <button class="scd-tab" type="button" data-scd-data-menu-toggle aria-haspopup="true" aria-expanded="false">Data ▾</button>
+                <div class="scd-action-menu-panel" data-scd-data-menu-panel>
+                  <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
+                  <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
+                </div>
+              </div>
+              <button class="scd-tab" type="button" data-scd-update-script>&#8679; Update Script</button>
+              <button class="scd-tab" type="button" data-scd-refresh>&#8635; Refresh</button>
               <button class="scd-tab" type="button" data-scd-close>Close</button>
             </div>
           </div>
@@ -1981,6 +2011,7 @@
       root.querySelector("[data-scd-net-suite-export]")?.addEventListener("click", reloadNetSuiteExport);
       root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
       root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
+      bindDataMenu(root);
       enableTableSorting(root);
       enableDrilldowns(root, isDealLookup ? summaryFromRows("Deal Lookup", lookupRows) : active);
       root.addEventListener("click", (event) => {
@@ -4046,10 +4077,15 @@
             </div>
           </div>
           <div class="scd-actions">
-            <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
-            <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
-            <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
-            <button class="scd-tab" type="button" data-scd-refresh>Hard Refresh</button>
+            <div class="scd-action-menu" data-scd-data-menu>
+              <button class="scd-tab" type="button" data-scd-data-menu-toggle aria-haspopup="true" aria-expanded="false">Data ▾</button>
+              <div class="scd-action-menu-panel" data-scd-data-menu-panel>
+                <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
+                <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
+              </div>
+            </div>
+            <button class="scd-tab" type="button" data-scd-update-script>&#8679; Update Script</button>
+            <button class="scd-tab" type="button" data-scd-refresh>&#8635; Refresh</button>
             <button class="scd-tab" type="button" data-scd-close>Close</button>
           </div>
         </div>
@@ -4069,6 +4105,7 @@
     root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
     root.querySelector("[data-scd-refresh]")?.addEventListener("click", () => boot({ preserveCurrentDashboard: true }));
     root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
+    bindDataMenu(root);
     document.body.appendChild(root);
     ensureLauncher();
   }
@@ -4133,6 +4170,30 @@
     window.open(CONFIG.updateUrl, "_blank", "noopener,noreferrer");
   }
 
+  function bindDataMenu(root) {
+    const menu = root.querySelector("[data-scd-data-menu]");
+    const toggle = root.querySelector("[data-scd-data-menu-toggle]");
+    const panel = root.querySelector("[data-scd-data-menu-panel]");
+    if (!menu || !toggle || !panel) return;
+
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = menu.getAttribute("data-open") === "true";
+      menu.setAttribute("data-open", open ? "false" : "true");
+      toggle.setAttribute("aria-expanded", open ? "false" : "true");
+    });
+    panel.addEventListener("click", () => {
+      menu.setAttribute("data-open", "false");
+      toggle.setAttribute("aria-expanded", "false");
+    });
+    root.addEventListener("click", (event) => {
+      if (!menu.contains(event.target)) {
+        menu.setAttribute("data-open", "false");
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+
   function showLoading(message) {
     installStyles();
     document.getElementById(ROOT_ID)?.remove();
@@ -4171,7 +4232,7 @@
     }
     if (refreshButton) {
       refreshButton.disabled = message === "Refreshing...";
-      refreshButton.textContent = message === "Refreshing..." ? message : "Hard Refresh";
+      refreshButton.innerHTML = message === "Refreshing..." ? message : "&#8635; Refresh";
     }
   }
 
