@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.5
+// @version      2.13.6
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.5",
+    version: "2.13.6",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -1699,7 +1699,18 @@
     document.head.appendChild(style);
   }
 
-  function renderDashboard(summaryData, sourceCount, sourceLabel = "visible table") {
+  function formatRefreshTimestamp(value) {
+    return new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short"
+    }).format(value);
+  }
+
+  function renderDashboard(summaryData, sourceCount, sourceLabel = "visible table", refreshedAt = new Date()) {
     installStyles();
     document.getElementById(ROOT_ID)?.remove();
 
@@ -1741,13 +1752,15 @@
                 <div class="scd-title">${escapeHtml(CONFIG.title)}</div>
                 <div class="scd-tagline">Your tool for Performance &amp; Engagement, Reporting &amp; Insights!</div>
                 <div class="scd-subtitle">${escapeHtml(versionLabel())} - Saved search ${escapeHtml(currentSearchLabel())} - Built from ${formatNumber(sourceCount)} rows via ${escapeHtml(sourceLabel)}.</div>
+                <div class="scd-subtitle">Last refreshed: ${escapeHtml(formatRefreshTimestamp(refreshedAt))}</div>
+                <div class="scd-muted" data-scd-refresh-feedback aria-live="polite"></div>
               </div>
             </div>
             <div class="scd-actions">
               <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
               <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
               <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
-              <button class="scd-tab" type="button" data-scd-refresh>Refresh</button>
+              <button class="scd-tab" type="button" data-scd-refresh>Hard Refresh</button>
               <button class="scd-tab" type="button" data-scd-close>Close</button>
             </div>
           </div>
@@ -1914,7 +1927,7 @@
         dealLookupFilters = makeEmptyDealLookupFilters();
         render();
       });
-      root.querySelector("[data-scd-refresh]")?.addEventListener("click", boot);
+      root.querySelector("[data-scd-refresh]")?.addEventListener("click", () => boot({ preserveCurrentDashboard: true }));
       root.querySelector("[data-scd-load-file]")?.addEventListener("click", promptForExportFile);
       root.querySelector("[data-scd-net-suite-export]")?.addEventListener("click", reloadNetSuiteExport);
       root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
@@ -3987,7 +4000,7 @@
             <button class="scd-tab" type="button" data-scd-load-file>Load Export File</button>
             <button class="scd-tab" type="button" data-scd-net-suite-export>Download Latest CSV</button>
             <button class="scd-tab" type="button" data-scd-update-script>Update Script</button>
-            <button class="scd-tab" type="button" data-scd-refresh>Refresh</button>
+            <button class="scd-tab" type="button" data-scd-refresh>Hard Refresh</button>
             <button class="scd-tab" type="button" data-scd-close>Close</button>
           </div>
         </div>
@@ -4005,7 +4018,7 @@
     root.querySelector("[data-scd-load-file]")?.addEventListener("click", promptForExportFile);
     root.querySelector("[data-scd-net-suite-export]")?.addEventListener("click", reloadNetSuiteExport);
     root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
-    root.querySelector("[data-scd-refresh]")?.addEventListener("click", boot);
+    root.querySelector("[data-scd-refresh]")?.addEventListener("click", () => boot({ preserveCurrentDashboard: true }));
     root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
     document.body.appendChild(root);
     ensureLauncher();
@@ -4099,45 +4112,67 @@
     document.body.appendChild(button);
   }
 
-  async function boot() {
+  function setRefreshFeedback(message, isError = false) {
+    const root = document.getElementById(ROOT_ID);
+    const feedback = root?.querySelector("[data-scd-refresh-feedback]");
+    const refreshButton = root?.querySelector("[data-scd-refresh]");
+    if (feedback) {
+      feedback.textContent = message;
+      feedback.classList.toggle("scd-warning", isError);
+    }
+    if (refreshButton) {
+      refreshButton.disabled = message === "Refreshing...";
+      refreshButton.textContent = message === "Refreshing..." ? message : "Hard Refresh";
+    }
+  }
+
+  async function boot({ preserveCurrentDashboard = false } = {}) {
     if (!isTargetSavedSearch()) {
       document.getElementById(ROOT_ID)?.remove();
       document.getElementById(LAUNCHER_ID)?.remove();
       return;
     }
     ensureLauncher();
-    showLoading("SC Engagement Dashboard: loading export data...");
+    const keepDashboard = preserveCurrentDashboard && Boolean(document.getElementById(ROOT_ID)?.querySelector("[data-scd-refresh-feedback]"));
+    if (keepDashboard) {
+      setRefreshFeedback("Refreshing...");
+    } else {
+      showLoading("SC Engagement Dashboard: loading export data...");
+    }
 
-    if (CONFIG.preferCsvExport) {
-      try {
-        const exportResult = await tryReadCsvExport();
-        if (exportResult.rows?.length) {
-          renderDashboard(summarize(exportResult.rows), exportResult.rows.length, exportResult.source || "CSV export");
-          return;
-        }
-        console.warn("SC Dashboard CSV export fallback:", exportResult.error);
-      } catch (error) {
-        console.warn("SC Dashboard CSV export fallback:", error);
+    try {
+      const exportResult = await tryReadCsvExport();
+      if (exportResult.rows?.length) {
+        renderDashboard(summarize(exportResult.rows), exportResult.rows.length, exportResult.source || "CSV export", new Date());
+        return;
       }
+      console.warn("SC Dashboard CSV export fallback:", exportResult.error);
+    } catch (error) {
+      console.warn("SC Dashboard CSV export fallback:", error);
     }
 
     const candidate = findSavedSearchTable();
     if (!candidate) {
-      showWarning("No complete visible results table was found with SC Vertical/Vertical (Employee), Request Type, and Solution Consultant columns. Industry tabs require a populated SC-side vertical field.");
+      const message = "No complete visible results table was found with SC Vertical/Vertical (Employee), Request Type, and Solution Consultant columns. Industry tabs require a populated SC-side vertical field.";
+      if (keepDashboard) setRefreshFeedback(`Hard Refresh failed: ${message}`, true);
+      else showWarning(message);
       return;
     }
 
     const { rows, error } = readRows(candidate.table, candidate.headers);
     if (error) {
-      showWarning(error);
+      if (keepDashboard) setRefreshFeedback(`Hard Refresh failed: ${error}`, true);
+      else showWarning(error);
       return;
     }
     if (!rows.length) {
-      showWarning("Found the saved-search table, but no readable data rows were available.");
+      const message = "Found the saved-search table, but no readable data rows were available.";
+      if (keepDashboard) setRefreshFeedback(`Hard Refresh failed: ${message}`, true);
+      else showWarning(message);
       return;
     }
 
-    renderDashboard(summarize(rows), rows.length);
+    renderDashboard(summarize(rows), rows.length, "visible table", new Date());
   }
 
   function initLauncherOnly() {
