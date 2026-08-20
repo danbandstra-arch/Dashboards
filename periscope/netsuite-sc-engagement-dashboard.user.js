@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.8
+// @version      2.13.9
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.8",
+    version: "2.13.9",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -2166,6 +2166,7 @@
       leadSc: "all",
       shadow: "all",
       crossStaffed: "all",
+      salesVertical: "all",
       includeValue: "No",
       startDate: "",
       endDate: ""
@@ -2184,6 +2185,7 @@
         ${filterSelectWithAttr("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Cross Staffed", "crossStaffed", ["Cross Staffed Only", "Not Cross Staffed"], filters.crossStaffed, "data-scd-dashboard-filter")}
+        ${filterSelectWithAttr("Sales Vertical", "salesVertical", salesVerticalOptions(rows), filters.salesVertical, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Include Value", "includeValue", ["No", "Yes"], filters.includeValue, "data-scd-dashboard-filter")}
         <label>
           Begin
@@ -2208,6 +2210,7 @@
       if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
       if (filters.crossStaffed === "Cross Staffed Only" && !isCrossStaffedRow(row)) return false;
       if (filters.crossStaffed === "Not Cross Staffed" && isCrossStaffedRow(row)) return false;
+      if (filters.salesVertical !== "all" && knownSalesVertical(row) !== filters.salesVertical) return false;
       if (filters.includeValue !== "Yes" && isValueManagementRow(row)) return false;
       if (filters.startDate && (!row.dateValue || row.dateValue < filters.startDate)) return false;
       if (filters.endDate && (!row.dateValue || row.dateValue > filters.endDate)) return false;
@@ -3731,6 +3734,16 @@
       .map(displayVertical)
       .filter((vertical, index, all) => all.indexOf(vertical) === index)
       .filter((vertical) => present.has(vertical));
+  }
+
+  function salesVerticalOptions(rows) {
+    const present = new Set(rows.map(knownSalesVertical).filter(Boolean).map(displayVertical));
+    const ordered = CONFIG.preferredVerticalOrder
+      .map(displayVertical)
+      .filter((vertical, index, all) => all.indexOf(vertical) === index)
+      .filter((vertical) => present.has(vertical));
+    const extras = Array.from(present).filter((vertical) => !ordered.includes(vertical)).sort((a, b) => a.localeCompare(b));
+    return [...ordered, ...extras];
   }
 
   function uniqueSortedValues(values) {
