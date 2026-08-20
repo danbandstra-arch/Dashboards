@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.9
+// @version      2.13.10
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.9",
+    version: "2.13.10",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -2210,7 +2210,7 @@
       if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
       if (filters.crossStaffed === "Cross Staffed Only" && !isCrossStaffedRow(row)) return false;
       if (filters.crossStaffed === "Not Cross Staffed" && isCrossStaffedRow(row)) return false;
-      if (filters.salesVertical !== "all" && knownSalesVertical(row) !== filters.salesVertical) return false;
+      if (filters.salesVertical !== "all" && salesVerticalFilterValue(row) !== filters.salesVertical) return false;
       if (filters.includeValue !== "Yes" && isValueManagementRow(row)) return false;
       if (filters.startDate && (!row.dateValue || row.dateValue < filters.startDate)) return false;
       if (filters.endDate && (!row.dateValue || row.dateValue > filters.endDate)) return false;
@@ -3178,6 +3178,15 @@
     return isKnownVertical(row.salesVertical) ? row.salesVertical : "";
   }
 
+  function salesVerticalFilterValue(row) {
+    if (!row.salesVerticalSource) return "";
+    const raw = normalizeText(row.salesVerticalRaw);
+    if (raw) return displayVertical(raw);
+    const value = normalizeText(row.salesVertical);
+    if (value && !value.startsWith("(")) return displayVertical(value);
+    return "(blank)";
+  }
+
   function knownSalesVertical(row) {
     if (!row.salesVerticalSource) return "";
     if (isKnownVertical(row.salesVertical)) return displayVertical(row.salesVertical);
@@ -3737,13 +3746,16 @@
   }
 
   function salesVerticalOptions(rows) {
-    const present = new Set(rows.map(knownSalesVertical).filter(Boolean).map(displayVertical));
+    const present = new Set(rows.map(salesVerticalFilterValue).filter(Boolean).map(displayVertical));
     const ordered = CONFIG.preferredVerticalOrder
       .map(displayVertical)
       .filter((vertical, index, all) => all.indexOf(vertical) === index)
       .filter((vertical) => present.has(vertical));
-    const extras = Array.from(present).filter((vertical) => !ordered.includes(vertical)).sort((a, b) => a.localeCompare(b));
-    return [...ordered, ...extras];
+    const hasBlank = present.has("(blank)");
+    const extras = Array.from(present)
+      .filter((vertical) => !ordered.includes(vertical) && vertical !== "(blank)")
+      .sort((a, b) => a.localeCompare(b));
+    return [...ordered, ...extras, ...(hasBlank ? ["(blank)"] : [])];
   }
 
   function uniqueSortedValues(values) {
