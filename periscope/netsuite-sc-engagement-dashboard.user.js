@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.11
+// @version      2.13.12
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -1468,19 +1468,31 @@
       }
       .scd-heat-toggle {
         align-items: center;
-        border: 1px solid rgba(67,124,148,0.42);
+        background: rgba(255,255,255,0.48);
+        border: 1px solid rgba(105,119,120,0.22);
         border-radius: 999px;
-        color: var(--rw-slate);
+        color: rgba(49,45,42,0.7);
         cursor: pointer;
         display: inline-flex;
-        font-size: 11px;
-        font-weight: 800;
+        font-size: 10px;
+        font-weight: 700;
         gap: 6px;
-        padding: 5px 9px;
+        padding: 4px 8px;
+        transition: border-color 140ms ease, color 140ms ease, opacity 140ms ease;
         user-select: none;
       }
+      .scd-heat-toggle:not(:hover) {
+        opacity: 0.72;
+      }
+      .scd-heat-toggle:hover {
+        border-color: rgba(67,124,148,0.38);
+        color: var(--rw-ink-deep);
+      }
       .scd-heat-toggle input {
+        accent-color: var(--rw-blue);
+        height: 12px;
         margin: 0;
+        width: 12px;
       }
       .scd-definitions {
         border-bottom: 1px solid var(--rw-line);
@@ -1557,6 +1569,12 @@
       .scd-heat {
         border-radius: 8px;
         font-weight: 700;
+      }
+      .scd-table td.scd-cell-truncate,
+      .scd-table th.scd-cell-truncate {
+        max-width: clamp(180px, 24vw, 340px);
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       [data-scd-drill] {
         cursor: pointer;
@@ -2361,7 +2379,7 @@
       });
   }
 
-  function rankedTable(map, label, limit = 10, denominator = 0) {
+function rankedTable(map, label, limit = 10, denominator = 0) {
     const sorted = sortedEntries(map);
     const entries = limit ? sorted.slice(0, limit) : sorted;
     if (!entries.length) return `<div class="scd-warning">No ${escapeHtml(label.toLowerCase())} data found.</div>`;
@@ -2378,7 +2396,8 @@
         { display: entries.length < sorted.length ? "Shown Total" : "Total", value: "Total" },
         { display: formatNumber(shownTotal), value: shownTotal },
         { display: total ? `${((shownTotal / total) * 100).toFixed(0)}%` : "0%", value: total ? shownTotal / total : 0 }
-      ]
+      ],
+      { truncateFirstColumn: label === "Deliverable" }
     );
   }
 
@@ -3366,20 +3385,20 @@
     return `
       <div class="scd-table-tools">
         ${definitionsBlock(headers)}
-        <label class="scd-heat-toggle" title="Turn conditional formatting on or off for this portlet">
+        <label class="scd-heat-toggle" title="${heatDisabled ? "Conditional formatting is off for this portlet" : "Conditional formatting is on for this portlet"}">
           <input type="checkbox" data-scd-toggle-heat="${escapeHtml(tableKey)}"${heatDisabled ? "" : " checked"}>
-          <span>${heatDisabled ? "Colors Off" : "Colors On"}</span>
+          <span>Conditional Formatting</span>
         </label>
       </div>
       <div class="scd-table-scroll">
         <table class="scd-table" data-scd-sortable>
-          <thead><tr>${headers.map((header, idx) => `<th data-scd-sort="${idx}">${escapeHtml(header)}</th>`).join("")}</tr></thead>
+          <thead><tr>${headers.map((header, idx) => `<th${options.truncateFirstColumn && idx === 0 ? ` class="scd-cell-truncate"` : ""} data-scd-sort="${idx}">${escapeHtml(header)}</th>`).join("")}</tr></thead>
           <tbody>
             ${rows
-              .map((row) => `<tr>${row.map((cell, colIdx) => tableCell(cell, heatDisabled ? null : heatByColumn[colIdx])).join("")}</tr>`)
+              .map((row) => `<tr>${row.map((cell, colIdx) => tableCell(cell, heatDisabled ? null : heatByColumn[colIdx], { truncate: Boolean(options.truncateFirstColumn && colIdx === 0) })).join("")}</tr>`)
               .join("")}
           </tbody>
-          ${footer ? `<tfoot><tr>${footer.map((cell) => tableCell(cell, { min: 0, max: 0 })).join("")}</tr></tfoot>` : ""}
+          ${footer ? `<tfoot><tr>${footer.map((cell, colIdx) => tableCell(cell, { min: 0, max: 0 }, { truncate: Boolean(options.truncateFirstColumn && colIdx === 0) })).join("")}</tr></tfoot>` : ""}
         </table>
       </div>
     `;
@@ -3494,16 +3513,20 @@
     return definitions[key] || moreDefinitions[key] || "Saved-search field or calculated dashboard value shown for this portlet.";
   }
 
-  function tableCell(cell, heatRange) {
+  function tableCell(cell, heatRange, options = {}) {
     const display = cellDisplay(cell);
     const value = cellValue(cell);
     const useHeat = Boolean(heatRange && cell && typeof cell === "object" && cell.heat && typeof value === "number" && Number.isFinite(value));
     const style = useHeat ? ` style="${heatStyle(value, heatRange.min, heatRange.max)}"` : "";
-    const className = useHeat ? ` class="scd-heat"` : "";
+    const classList = [];
+    if (useHeat) classList.push("scd-heat");
+    if (options.truncate) classList.push("scd-cell-truncate");
+    const className = classList.length ? ` class="${classList.join(" ")}"` : "";
+    const title = options.truncate ? ` title="${escapeHtml(display)}"` : "";
     const sortValue = value === null || value === undefined || Number.isNaN(value) ? display : value;
     const drill = cell && typeof cell === "object" && cell.drill ? ` data-scd-drill='${drillAttr(cell.drill)}'` : "";
     const content = cell && typeof cell === "object" && cell.html ? display : escapeHtml(display);
-    return `<td${className}${style} data-scd-value="${escapeHtml(sortValue)}"${drill}>${content}</td>`;
+    return `<td${className}${style}${title} data-scd-value="${escapeHtml(sortValue)}"${drill}>${content}</td>`;
   }
 
   function scLabel(summary, consultant) {
