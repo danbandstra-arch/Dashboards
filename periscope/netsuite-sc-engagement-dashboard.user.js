@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.12
+// @version      2.13.13
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.11",
+    version: "2.13.13",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -68,6 +68,7 @@
       billingState: ["Billing State/Province", "Billing State", "Billing Province", "Bill State/Province", "Bill State", "State/Province"],
       subregion: ["Subregion", "Sub Region", "Sub-Region", "SC Sub Region", "SC Sub-Region", "Sales Sub Region", "Sales Sub-Region"],
       deliverable: ["Deliverable", "Engagement Type"],
+      products: ["Engagement: Product(s)", "Products", "Product(s)", "Product", "Engagement Products"],
       date: ["Date Created", "Created Date", "Date Needed", "Exp Close"],
       oml5: ["OML5", "OM L5", "L5", "OML 5"],
       oml6: ["OML6", "OM L6", "L6", "OML 6"],
@@ -506,6 +507,7 @@
     const billingStateIdx = findColumnIndex(headers, CONFIG.columnAliases.billingState);
     const subregionIdx = findColumnIndex(headers, CONFIG.columnAliases.subregion);
     const deliverableIdx = findColumnIndex(headers, CONFIG.columnAliases.deliverable);
+    const productsIdx = findColumnIndex(headers, CONFIG.columnAliases.products);
     const dateIdx = findColumnIndex(headers, CONFIG.columnAliases.date);
     const oml5Idx = findColumnIndex(headers, CONFIG.columnAliases.oml5);
     const oml6Idx = findColumnIndex(headers, CONFIG.columnAliases.oml6);
@@ -569,6 +571,7 @@
         billingState: billingStateIdx >= 0 ? normalizeBillingState(cells[billingStateIdx]) : "(billing state column missing)",
         subregion: subregionIdx >= 0 ? cells[subregionIdx] || "(blank)" : "(subregion column missing)",
         deliverable: deliverableIdx >= 0 ? cells[deliverableIdx] || "(blank)" : "(deliverable column missing)",
+        products: productsIdx >= 0 ? cells[productsIdx] || "(blank)" : "(products column missing)",
         oml5: oml5Idx >= 0 ? cells[oml5Idx] || "" : "",
         oml6: oml6Idx >= 0 ? cells[oml6Idx] || "" : "",
         oml7: oml7Idx >= 0 ? cells[oml7Idx] || "" : "",
@@ -1974,6 +1977,16 @@
               <div class="scd-panel-title">Deal Analysis by Deliverable</div>
               ${dealAnalysisTable(active)}
             </div>
+            <div class="scd-grid scd-deep-grid">
+              <div class="scd-panel">
+                <div class="scd-panel-title">Upsell Product Mix</div>
+                ${deliverableProductPortlet(active, "Upsell")}
+              </div>
+              <div class="scd-panel">
+                <div class="scd-panel-title">Platform Product Mix</div>
+                ${deliverableProductPortlet(active, "Platform")}
+              </div>
+            </div>
             <div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Renewal Portlet</div>
               ${renewalPortlet(active)}
@@ -2940,6 +2953,112 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     );
   }
 
+  function deliverableProductPortlet(summary, deliverableName) {
+    const matching = summary.rows.filter((row) => normalizeText(deliverableLabel(row)).toLowerCase() === deliverableName.toLowerCase());
+    if (!matching.length) return `<div class="scd-warning">No ${escapeHtml(deliverableName)} requests found.</div>`;
+    const groups = new Map();
+    matching.forEach((row) => {
+      productList(row).forEach((productName) => {
+        if (!groups.has(productName)) {
+          groups.set(productName, {
+            productName,
+            rows: [],
+            consultants: new Set(),
+            amo: 0,
+            direct: 0,
+            channel: 0,
+            other: 0,
+            pipeline: 0,
+            closedRevenueTotal: 0,
+            revenue: 0,
+            weighted: 0
+          });
+        }
+        const metric = groups.get(productName);
+        const motion = salesMotionBucket(row).toLowerCase();
+        metric.rows.push(row);
+        metric.consultants.add(row.consultant);
+        if (motion === "amo") metric.amo += 1;
+        else if (motion === "direct") metric.direct += 1;
+        else if (motion === "channel") metric.channel += 1;
+        else metric.other += 1;
+        metric.pipeline += pipelineRevenue(row);
+        metric.closedRevenueTotal += closedRevenue(row);
+        metric.revenue += rowRevenue(row);
+        metric.weighted += weightedRevenue(row);
+      });
+    });
+    const rows = Array.from(groups.values()).sort((a, b) => b.rows.length - a.rows.length || a.productName.localeCompare(b.productName));
+    const totalVolume = rows.reduce((sum, row) => sum + row.rows.length, 0);
+    const totals = rows.reduce(
+      (sum, row) => {
+        sum.uniqueScs = new Set([...sum.uniqueScs, ...row.consultants]);
+        sum.amo += row.amo;
+        sum.direct += row.direct;
+        sum.channel += row.channel;
+        sum.other += row.other;
+        sum.pipeline += row.pipeline;
+        sum.closedRevenueTotal += row.closedRevenueTotal;
+        sum.revenue += row.revenue;
+        sum.weighted += row.weighted;
+        return sum;
+      },
+      { uniqueScs: new Set(), amo: 0, direct: 0, channel: 0, other: 0, pipeline: 0, closedRevenueTotal: 0, revenue: 0, weighted: 0 }
+    );
+    return `
+      ${simpleTable(
+        ["Products", "Volume", "% of Shown", "Unique SCs", "AMO", "Direct", "Channel", "Other", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev"],
+        rows.map((row) => {
+          const drill = { deliverable: deliverableName, product: row.productName };
+          return [
+            { display: row.productName, value: row.productName, drill },
+            { display: formatNumber(row.rows.length), value: row.rows.length, heat: true, drill },
+            { display: totalVolume ? `${((row.rows.length / totalVolume) * 100).toFixed(0)}%` : "0%", value: totalVolume ? row.rows.length / totalVolume : 0, heat: true, drill },
+            { display: formatNumber(row.consultants.size), value: row.consultants.size, heat: true, drill },
+            { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { ...drill, salesMotion: "AMO" } },
+            { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { ...drill, salesMotion: "Direct" } },
+            { display: formatNumber(row.channel), value: row.channel, heat: true, drill: { ...drill, salesMotion: "Channel" } },
+            { display: formatNumber(row.other), value: row.other, heat: true, drill: { ...drill, salesMotion: "Other" } },
+            { display: formatCurrency(row.pipeline), value: row.pipeline, heat: true, drill: { ...drill, oppBucket: "Open" } },
+            { display: formatCurrency(row.closedRevenueTotal), value: row.closedRevenueTotal, heat: true, drill: { ...drill, oppBucket: "Won" } },
+            { display: formatCurrency(row.revenue), value: row.revenue, heat: true, drill },
+            { display: formatCurrency(row.weighted), value: row.weighted, heat: true, drill }
+          ];
+        }),
+        [
+          { display: "Total", value: "Total" },
+          { display: formatNumber(totalVolume), value: totalVolume },
+          { display: totalVolume ? "100%" : "0%", value: totalVolume ? 1 : 0 },
+          { display: formatNumber(totals.uniqueScs.size), value: totals.uniqueScs.size },
+          { display: formatNumber(totals.amo), value: totals.amo },
+          { display: formatNumber(totals.direct), value: totals.direct },
+          { display: formatNumber(totals.channel), value: totals.channel },
+          { display: formatNumber(totals.other), value: totals.other },
+          { display: formatCurrency(totals.pipeline), value: totals.pipeline },
+          { display: formatCurrency(totals.closedRevenueTotal), value: totals.closedRevenueTotal },
+          { display: formatCurrency(totals.revenue), value: totals.revenue },
+          { display: formatCurrency(totals.weighted), value: totals.weighted }
+        ],
+        { key: `${deliverableName}-product-mix`, truncateFirstColumn: true }
+      )}
+    `;
+  }
+
+  function productScVolumeTable(summary, rows, productName) {
+    const productSummary = summaryFromRows(productName || "Product SC Volume", rows);
+    return staffedScVolumeTable(productSummary, sortedEntries(productSummary.byConsultant));
+  }
+
+  function productList(row) {
+    const raw = normalizeText(row.products);
+    if (!raw || raw.startsWith("(")) return ["Product Not Listed"];
+    const pieces = raw
+      .split(/\s*(?:;|\||\n|\r)\s*/)
+      .map((piece) => normalizeText(piece))
+      .filter(Boolean);
+    return pieces.length ? Array.from(new Set(pieces)) : ["Product Not Listed"];
+  }
+
   function renewalPortlet(summary) {
     const renewalRows = summary.rows.filter((row) => normalizeText(deliverableLabel(row)).toLowerCase() === "revenue save/renewal");
     if (!renewalRows.length) {
@@ -3452,6 +3571,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       industrysubgroup: "More specific child industry grouping under Company Industry.",
       requesttype: "Request Type from NetSuite, normalized into AMO, Direct, Channel, Value, SCAI, or TCOE where applicable.",
       deliverable: "Engagement deliverable type. Blank AMO/Direct deliverables are labeled so missing values still count.",
+      products: "Engagement Product(s) from the saved search. Used to analyze which products are driving Upsell and Platform staffing.",
       oppstatus: "Opportunity status. CLOSE is treated as open, not won.",
       forecastgrade: "Forecast grade/category from the saved search.",
       scstatus: "SC engagement status from the saved search.",
@@ -3646,6 +3766,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         if (key === "renewalRank") return normalizeText(row.renewalRank) === normalizeText(value);
         if (key === "forecastGrade") return forecastGradeLabel(row) === value;
         if (key === "industrySubgroup") return normalizeText(row.industrySubgroup) === normalizeText(value);
+        if (key === "product") return productList(row).some((productName) => normalizeText(productName) === normalizeText(value));
         return normalizeText(row[key]) === normalizeText(value);
       })
     );
@@ -3712,6 +3833,10 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
                 <div class="scd-panel-title">Staffed SCs</div>
                 ${staffedScTable(summary)}
               </div>
+              ${state.filters.product ? `<div class="scd-panel">
+                <div class="scd-panel-title">SC Volume</div>
+                ${productScVolumeTable(summary, filteredRows, state.filters.product)}
+              </div>` : ""}
               <div class="scd-panel">
                 <div class="scd-panel-title">Engagement Shape</div>
                 ${drilldownShape(summary)}
@@ -3912,7 +4037,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Shadow", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Shadow", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
@@ -3941,6 +4066,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         row.industrySubgroup,
         requestTypeLabel(row),
         deliverableLabel(row),
+        row.products,
         row.oppStatus,
         row.status,
         row.probability === null ? "" : `${(row.probability * 100).toFixed(0)}%`,
@@ -3961,7 +4087,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Shadow", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Shadow", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       ${definitionsBlock(headers)}
@@ -3997,6 +4123,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
                   row.industrySubgroup,
                   requestTypeLabel(row),
                   deliverableLabel(row),
+                  row.products,
                   row.oppStatus,
                   row.forecastGrade,
                   row.status,
