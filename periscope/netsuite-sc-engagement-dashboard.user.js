@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.15
+// @version      2.13.16
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.15",
+    version: "2.13.16",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -4583,6 +4583,13 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       currency: "USD",
       maximumFractionDigits: 0
     });
+  }
+
+  function percent(numerator, denominator) {
+    const top = Number(numerator);
+    const bottom = Number(denominator);
+    if (!Number.isFinite(top) || !Number.isFinite(bottom) || bottom === 0) return "0";
+    return ((top / bottom) * 100).toFixed(0);
   }
 
   function escapeHtml(value) {
