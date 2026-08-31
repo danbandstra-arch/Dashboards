@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.14
+// @version      2.13.15
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.14",
+    version: "2.13.15",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -1860,7 +1860,7 @@
     root.id = ROOT_ID;
     root.className = "scd-modal-root";
 
-    const views = [{ name: "Deal Lookup", isDealLookup: true }, summaryData.org, ...(summaryData.teams || []), ...summaryData.verticals];
+    const views = [{ name: "Deal Lookup", isDealLookup: true }, { name: "Executive Overview", isExecutiveOverview: true }, summaryData.org, ...(summaryData.teams || []), ...summaryData.verticals];
     let activeIndex = Math.max(0, views.findIndex((view) => view.name === "All Verticals"));
     let dashboardFilters = makeEmptyDashboardFilters();
     let dealLookupFilters = makeEmptyDealLookupFilters();
@@ -1868,8 +1868,10 @@
     function render() {
       const activeBase = views[activeIndex];
       const isDealLookup = Boolean(activeBase.isDealLookup);
+      const isExecutiveOverview = Boolean(activeBase.isExecutiveOverview);
+      const dashboardBaseRows = isExecutiveOverview ? summaryData.org.rows : activeBase.rows;
       const lookupRows = isDealLookup ? applyDealLookupFilters(summaryData.org.rows, dealLookupFilters) : [];
-      const activeRows = isDealLookup ? [] : applyDashboardFilters(activeBase.rows, dashboardFilters);
+      const activeRows = isDealLookup ? [] : applyDashboardFilters(dashboardBaseRows, dashboardFilters);
       const active = summaryFromRows(activeBase.name, activeRows);
       const requestTypes = requestTypesFor(active);
       const amoType = requestTypes.find((type) => /amo/i.test(type));
@@ -1881,7 +1883,7 @@
       const activeVerticals = verticalSummariesFromRows(active.rows);
       const maxVerticalTotal = Math.max(...activeVerticals.map((vertical) => vertical.total), 1);
       const isAllVerticals = activeBase.name === summaryData.org.name;
-      const isVerticalView = !isDealLookup && summaryData.verticals.some((vertical) => vertical.name === activeBase.name);
+      const isVerticalView = !isDealLookup && !isExecutiveOverview && summaryData.verticals.some((vertical) => vertical.name === activeBase.name);
 
       root.innerHTML = `
         <div class="scd-modal-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(CONFIG.title)}">
@@ -1919,9 +1921,9 @@
               )
               .join("")}
           </div>
-          ${isDealLookup ? dealLookupFilterBar(summaryData.org.rows, dealLookupFilters) : dashboardFilterBar(activeBase.rows, dashboardFilters)}
+          ${isDealLookup ? dealLookupFilterBar(summaryData.org.rows, dealLookupFilters) : dashboardFilterBar(dashboardBaseRows, dashboardFilters)}
           <div class="scd-body">
-            ${isDealLookup ? dealLookupBody(lookupRows, dealLookupFilters) : `
+            ${isDealLookup ? dealLookupBody(lookupRows, dealLookupFilters) : isExecutiveOverview ? executiveOverviewBody(active, summaryData) : `
             <div class="scd-kpis">
               ${kpi("Total Requests", active.total)}
               ${kpi("Unique SCs Staffed", active.consultants.size)}
@@ -3457,6 +3459,249 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         return map;
       }, new Map()).entries()
     ).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+  }
+
+  function executiveOverviewBody(summary, summaryData) {
+    const requestTypes = requestTypesFor(summary);
+    const amoType = requestTypes.find((type) => /amo/i.test(type));
+    const directType = requestTypes.find((type) => /direct/i.test(type));
+    const amo = amoType ? metricFor(summary, amoType) : { volume: 0, unique: 0, avg: 0 };
+    const direct = directType ? metricFor(summary, directType) : { volume: 0, unique: 0, avg: 0 };
+    const months = monthCountForRows(summary.rows);
+    return `
+      <div class="scd-kpis">
+        ${kpi("Total Requests", summary.total)}
+        ${kpi("Unique SCs Staffed", summary.consultants.size)}
+        ${kpi("AMO Avg / SC", amo.avg.toFixed(1), `${formatNumber(amo.volume)} volume / ${formatNumber(amo.unique)} SCs / ${monthlyVolumeLabel(amo.volume, months)}`)}
+        ${kpi("Direct Avg / SC", direct.avg.toFixed(1), `${formatNumber(direct.volume)} volume / ${formatNumber(direct.unique)} SCs / ${monthlyVolumeLabel(direct.volume, months)}`)}
+      </div>
+      <div class="scd-panel scd-deep-grid">
+        <div class="scd-panel-title">Industry Family Scorecard</div>
+        ${industryFamilyScorecard(summary)}
+      </div>
+      <div class="scd-grid scd-deep-grid">
+        <div class="scd-panel">
+          <div class="scd-panel-title">Volume vs Capacity</div>
+          ${volumeCapacityTable(summary)}
+        </div>
+        <div class="scd-panel">
+          <div class="scd-panel-title">Revenue Quality by Industry</div>
+          ${revenueQualityByIndustry(summary)}
+        </div>
+      </div>
+      <div class="scd-panel scd-deep-grid">
+        <div class="scd-panel-title">Deliverable Mix by Industry</div>
+        ${deliverableMixByIndustry(summary)}
+      </div>
+      <div class="scd-grid scd-deep-grid">
+        <div class="scd-panel">
+          <div class="scd-panel-title">Data Quality &amp; Risk</div>
+          ${dataQualityRiskTable(summary)}
+        </div>
+        <div class="scd-panel">
+          <div class="scd-panel-title">Manager Production Heatmap</div>
+          ${managerProductionHeatmap(summary)}
+        </div>
+      </div>
+      <div class="scd-panel scd-deep-grid">
+        <div class="scd-panel-title">Month-over-Month Volume</div>
+        ${monthTable(summary.byMonth)}
+      </div>
+    `;
+  }
+
+  function industryFamilyMetrics(summary) {
+    const summaryMonths = monthCountForRows(summary.rows);
+    return verticalSummariesFromRows(summary.rows).map((vertical) => {
+      const rows = vertical.rows;
+      const total = rows.length;
+      const consultants = new Set(rows.map((row) => row.consultant).filter(Boolean));
+      const direct = rows.filter((row) => salesMotionBucket(row) === "Direct").length;
+      const amo = rows.filter((row) => salesMotionBucket(row) === "AMO").length;
+      const channel = rows.filter((row) => salesMotionBucket(row) === "Channel").length;
+      const won = rows.filter((row) => opportunityBucket(row.oppStatus) === "Won").length;
+      const lost = rows.filter((row) => opportunityBucket(row.oppStatus) === "Lost").length;
+      const missingForecast = rows.filter((row) => forecastGradeLabel(row) === "Missing Forecast Grade").length;
+      const blankDeliverable = rows.filter((row) => /blank deliverable/i.test(deliverableLabel(row))).length;
+      const missingProducts = rows.filter((row) => !normalizeText(row.products)).length;
+      const missingSalesVertical = rows.filter((row) => !normalizeText(row.salesVertical)).length;
+      const missingLegacyOrg = rows.filter((row) => normalizeOrg(row.legacyOrg) === "(legacy org missing)").length;
+      const crossStaffed = rows.filter(isCrossStaffedRow).length;
+      const shadow = rows.filter((row) => isShadowValue(row.shadow)).length;
+      const winRateBase = won + lost;
+      return {
+        name: vertical.name,
+        rows,
+        total,
+        months: summaryMonths,
+        consultants,
+        direct,
+        amo,
+        channel,
+        pipeline: sumRows(rows, pipelineRevenue),
+        closed: sumRows(rows, closedRevenue),
+        revenue: sumRows(rows, rowRevenue),
+        weighted: sumRows(rows, weightedRevenue),
+        arrCommit: sumRows(rows, arrCommit),
+        mgrCommit: sumRows(rows, mgrCommit),
+        vlCommit: sumRows(rows, vlCommit),
+        won,
+        lost,
+        open: rows.filter((row) => opportunityBucket(row.oppStatus) === "Open").length,
+        winRate: winRateBase ? won / winRateBase : 0,
+        crossStaffed,
+        shadow,
+        missingForecast,
+        blankDeliverable,
+        missingProducts,
+        missingSalesVertical,
+        missingLegacyOrg
+      };
+    });
+  }
+
+  function industryFamilyScorecard(summary) {
+    const metrics = industryFamilyMetrics(summary);
+    const headers = ["Industry Family", "Requests", "Vol / Mo", "Unique SCs", "Avg / SC", "Pipeline Rev", "Closed Rev", "Weighted Rev", "Win Rate", "% Cross Staffed", "% Shadow", "% Missing Forecast"];
+    const rows = metrics.map((metric) => {
+      const drill = { vertical: metric.name };
+      return [
+        { display: metric.name, value: metric.name, drill },
+        { display: formatNumber(metric.total), value: metric.total, heat: true, drill },
+        { display: `${(metric.total / metric.months).toFixed(1)} / mo`, value: metric.total / metric.months, heat: true, drill },
+        { display: formatNumber(metric.consultants.size), value: metric.consultants.size, heat: true, drill },
+        { display: metric.consultants.size ? (metric.total / metric.consultants.size).toFixed(1) : "0.0", value: metric.consultants.size ? metric.total / metric.consultants.size : 0, heat: true, drill },
+        { display: formatCurrency(metric.pipeline), value: metric.pipeline, heat: true, drill: { ...drill, oppBucket: "Open" } },
+        { display: formatCurrency(metric.closed), value: metric.closed, heat: true, drill: { ...drill, oppBucket: "Won" } },
+        { display: formatCurrency(metric.weighted), value: metric.weighted, heat: true, drill },
+        { display: `${(metric.winRate * 100).toFixed(0)}%`, value: metric.winRate, heat: true, drill },
+        { display: `${percent(metric.crossStaffed, metric.total)}%`, value: metric.total ? metric.crossStaffed / metric.total : 0, heat: true, drill: { ...drill, crossStaffed: "true" } },
+        { display: `${percent(metric.shadow, metric.total)}%`, value: metric.total ? metric.shadow / metric.total : 0, heat: true, drill: { ...drill, shadow: "Yes" } },
+        { display: `${percent(metric.missingForecast, metric.total)}%`, value: metric.total ? metric.missingForecast / metric.total : 0, heat: true, drill: { ...drill, forecastGrade: "Missing Forecast Grade" } }
+      ];
+    });
+    const totalWon = metrics.reduce((sum, metric) => sum + metric.won, 0);
+    const totalLost = metrics.reduce((sum, metric) => sum + metric.lost, 0);
+    const winBase = totalWon + totalLost;
+    const footer = [
+      "Total",
+      formatNumber(summary.total),
+      `${(summary.total / monthCountForRows(summary.rows)).toFixed(1)} / mo`,
+      formatNumber(summary.consultants.size),
+      summary.consultants.size ? (summary.total / summary.consultants.size).toFixed(1) : "0.0",
+      formatCurrency(metrics.reduce((sum, metric) => sum + metric.pipeline, 0)),
+      formatCurrency(metrics.reduce((sum, metric) => sum + metric.closed, 0)),
+      formatCurrency(metrics.reduce((sum, metric) => sum + metric.weighted, 0)),
+      winBase ? `${((totalWon / winBase) * 100).toFixed(0)}%` : "0%",
+      `${percent(metrics.reduce((sum, metric) => sum + metric.crossStaffed, 0), summary.total)}%`,
+      `${percent(metrics.reduce((sum, metric) => sum + metric.shadow, 0), summary.total)}%`,
+      `${percent(metrics.reduce((sum, metric) => sum + metric.missingForecast, 0), summary.total)}%`
+    ];
+    return simpleTable(headers, rows, footer, { key: "executive-industry-scorecard" });
+  }
+
+  function volumeCapacityTable(summary) {
+    const headers = ["Industry Family", "Requests", "Direct", "AMO", "Channel", "Unique SCs", "Avg / SC", "Vol / Mo"];
+    const rows = industryFamilyMetrics(summary).map((metric) => {
+      const drill = { vertical: metric.name };
+      return [
+        { display: metric.name, value: metric.name, drill },
+        { display: formatNumber(metric.total), value: metric.total, heat: true, drill },
+        { display: formatNumber(metric.direct), value: metric.direct, heat: true, drill: { ...drill, salesMotion: "Direct" } },
+        { display: formatNumber(metric.amo), value: metric.amo, heat: true, drill: { ...drill, salesMotion: "AMO" } },
+        { display: formatNumber(metric.channel), value: metric.channel, heat: true, drill: { ...drill, salesMotion: "Channel" } },
+        { display: formatNumber(metric.consultants.size), value: metric.consultants.size, heat: true, drill },
+        { display: metric.consultants.size ? (metric.total / metric.consultants.size).toFixed(1) : "0.0", value: metric.consultants.size ? metric.total / metric.consultants.size : 0, heat: true, drill },
+        { display: `${(metric.total / metric.months).toFixed(1)} / mo`, value: metric.total / metric.months, heat: true, drill }
+      ];
+    });
+    return simpleTable(headers, rows, null, { key: "executive-volume-capacity" });
+  }
+
+  function revenueQualityByIndustry(summary) {
+    const headers = ["Industry Family", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Avg Rev / Req"];
+    const rows = industryFamilyMetrics(summary).map((metric) => {
+      const drill = { vertical: metric.name };
+      return [
+        { display: metric.name, value: metric.name, drill },
+        { display: formatCurrency(metric.arrCommit), value: metric.arrCommit, heat: true, drill },
+        { display: formatCurrency(metric.mgrCommit), value: metric.mgrCommit, heat: true, drill },
+        { display: formatCurrency(metric.vlCommit), value: metric.vlCommit, heat: true, drill },
+        { display: formatCurrency(metric.pipeline), value: metric.pipeline, heat: true, drill: { ...drill, oppBucket: "Open" } },
+        { display: formatCurrency(metric.closed), value: metric.closed, heat: true, drill: { ...drill, oppBucket: "Won" } },
+        { display: formatCurrency(metric.revenue), value: metric.revenue, heat: true, drill },
+        { display: formatCurrency(metric.weighted), value: metric.weighted, heat: true, drill },
+        { display: formatCurrency(metric.total ? metric.revenue / metric.total : 0), value: metric.total ? metric.revenue / metric.total : 0, heat: true, drill }
+      ];
+    });
+    return simpleTable(headers, rows, null, { key: "executive-revenue-quality" });
+  }
+
+  function deliverableMixByIndustry(summary) {
+    const topDeliverables = Array.from(summary.byDeliverable.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 8)
+      .map(([deliverable]) => deliverable);
+    const headers = ["Industry Family", ...topDeliverables, "Other", "Total"];
+    const rows = industryFamilyMetrics(summary).map((metric) => {
+      const deliverableCounts = new Map();
+      metric.rows.forEach((row) => incrementMap(deliverableCounts, deliverableLabel(row)));
+      const shown = topDeliverables.reduce((sum, deliverable) => sum + (deliverableCounts.get(deliverable) || 0), 0);
+      const drill = { vertical: metric.name };
+      return [
+        { display: metric.name, value: metric.name, drill },
+        ...topDeliverables.map((deliverable) => {
+          const count = deliverableCounts.get(deliverable) || 0;
+          return { display: formatNumber(count), value: count, heat: true, drill: { ...drill, deliverable } };
+        }),
+        { display: formatNumber(metric.total - shown), value: metric.total - shown, heat: true, drill },
+        { display: formatNumber(metric.total), value: metric.total, heat: true, drill }
+      ];
+    });
+    return simpleTable(headers, rows, null, { key: "executive-deliverable-mix", truncateFirstColumn: true });
+  }
+
+  function dataQualityRiskTable(summary) {
+    const headers = ["Industry Family", "Missing Forecast", "Blank Deliverable", "Missing Products", "Missing Sales Vertical", "Missing Legacy Org", "Shadow"];
+    const rows = industryFamilyMetrics(summary).map((metric) => {
+      const drill = { vertical: metric.name };
+      return [
+        { display: metric.name, value: metric.name, drill },
+        { display: formatNumber(metric.missingForecast), value: metric.missingForecast, heat: true, drill: { ...drill, forecastGrade: "Missing Forecast Grade" } },
+        { display: formatNumber(metric.blankDeliverable), value: metric.blankDeliverable, heat: true, drill },
+        { display: formatNumber(metric.missingProducts), value: metric.missingProducts, heat: true, drill },
+        { display: formatNumber(metric.missingSalesVertical), value: metric.missingSalesVertical, heat: true, drill },
+        { display: formatNumber(metric.missingLegacyOrg), value: metric.missingLegacyOrg, heat: true, drill },
+        { display: formatNumber(metric.shadow), value: metric.shadow, heat: true, drill: { ...drill, shadow: "Yes" } }
+      ];
+    });
+    return simpleTable(headers, rows, null, { key: "executive-data-quality-risk" });
+  }
+
+  function managerProductionHeatmap(summary) {
+    const metrics = industryFamilyMetrics(summary);
+    const verticalNames = metrics.slice(0, 8).map((metric) => metric.name);
+    const managers = new Map();
+    summary.rows.forEach((row) => {
+      const manager = normalizeText(row.teamManager || row.currentManager || row.manager) || "(blank)";
+      const vertical = row.vertical || "(blank)";
+      if (!managers.has(manager)) managers.set(manager, { manager, total: 0, byVertical: new Map() });
+      const metric = managers.get(manager);
+      metric.total += 1;
+      incrementMap(metric.byVertical, vertical);
+    });
+    const rows = Array.from(managers.values())
+      .sort((a, b) => b.total - a.total || a.manager.localeCompare(b.manager))
+      .slice(0, 12)
+      .map((metric) => [
+        { display: metric.manager, value: metric.manager, drill: { teamManager: metric.manager } },
+        ...verticalNames.map((vertical) => {
+          const count = metric.byVertical.get(vertical) || 0;
+          return { display: formatNumber(count), value: count, heat: true, drill: { teamManager: metric.manager, vertical } };
+        }),
+        { display: formatNumber(metric.total), value: metric.total, heat: true, drill: { teamManager: metric.manager } }
+      ]);
+    return simpleTable(["Team Manager", ...verticalNames, "Total"], rows, null, { key: "executive-manager-production-heatmap", truncateFirstColumn: true });
   }
 
   function pieChart(entries, total, filterKey, extraFilters = {}) {
