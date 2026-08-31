@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.13
+// @version      2.13.14
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,8 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.13",
+    version: "2.13.14",
+    monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
     fiscalStartDay: 1,
@@ -1068,6 +1069,11 @@
     return Array.from(monthMap.keys())
       .filter((key) => key && !String(key).startsWith("("))
       .sort((a, b) => String(a).localeCompare(String(b)));
+  }
+
+  function isReportableMonth(month) {
+    const key = normalizeText(month);
+    return Boolean(key && !key.startsWith("(") && key >= CONFIG.monthOverMonthStartMonth);
   }
 
   function monthCountForRows(rows) {
@@ -3165,7 +3171,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
 
   function monthTable(map) {
     const entries = Array.from(map.entries())
-      .filter(([key]) => key && !key.startsWith("("))
+      .filter(([key]) => isReportableMonth(key))
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     if (!entries.length) return `<div class="scd-warning">No usable date/month data found.</div>`;
     const totalVolume = entries.reduce((sum, [, volume]) => sum + volume, 0);
