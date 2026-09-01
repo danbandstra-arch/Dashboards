@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.16
+// @version      2.13.17
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.16",
+    version: "2.13.17",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -4083,6 +4083,16 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
               <div class="scd-panel">
                 <div class="scd-panel-title">Staffed SCs</div>
                 ${staffedScTable(summary)}
+              </div>
+              <div class="scd-grid">
+                <div class="scd-panel">
+                  <div class="scd-panel-title">Upsell Product Mix</div>
+                  ${deliverableProductPortlet(summary, "Upsell")}
+                </div>
+                <div class="scd-panel">
+                  <div class="scd-panel-title">Platform Product Mix</div>
+                  ${deliverableProductPortlet(summary, "Platform")}
+                </div>
               </div>
               ${state.filters.product ? `<div class="scd-panel">
                 <div class="scd-panel-title">SC Volume</div>
