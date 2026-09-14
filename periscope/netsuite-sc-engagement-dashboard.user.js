@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.17
+// @version      2.13.18
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.17",
+    version: "2.13.18",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -1475,6 +1475,25 @@
         background: transparent;
         border-bottom: 0;
       }
+      .scd-table-actions {
+        align-items: center;
+        display: inline-flex;
+        gap: 8px;
+      }
+      .scd-export-link {
+        background: transparent;
+        border: 0;
+        color: var(--rw-blue);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 800;
+        padding: 4px 2px;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .scd-export-link:hover {
+        color: var(--rw-rust);
+      }
       .scd-heat-toggle {
         align-items: center;
         background: rgba(255,255,255,0.48);
@@ -2105,6 +2124,7 @@
       root.querySelector("[data-scd-update-script]")?.addEventListener("click", openScriptUpdate);
       root.querySelector("[data-scd-close]")?.addEventListener("click", () => root.remove());
       bindDataMenu(root);
+      bindTableExports(root);
       enableTableSorting(root);
       enableDrilldowns(root, isDealLookup ? summaryFromRows("Deal Lookup", lookupRows) : active);
       root.addEventListener("click", (event) => {
@@ -3755,10 +3775,13 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     return `
       <div class="scd-table-tools">
         ${definitionsBlock(headers)}
-        <label class="scd-heat-toggle" title="${heatDisabled ? "Conditional formatting is off for this portlet" : "Conditional formatting is on for this portlet"}">
-          <input type="checkbox" data-scd-toggle-heat="${escapeHtml(tableKey)}"${heatDisabled ? "" : " checked"}>
-          <span>Conditional Formatting</span>
-        </label>
+        <div class="scd-table-actions">
+          <button class="scd-export-link" type="button" data-scd-export-table data-scd-export-name="${escapeHtml(tableKey)}">Export CSV</button>
+          <label class="scd-heat-toggle" title="${heatDisabled ? "Conditional formatting is off for this portlet" : "Conditional formatting is on for this portlet"}">
+            <input type="checkbox" data-scd-toggle-heat="${escapeHtml(tableKey)}"${heatDisabled ? "" : " checked"}>
+            <span>Conditional Formatting</span>
+          </label>
+        </div>
       </div>
       <div class="scd-table-scroll">
         <table class="scd-table" data-scd-sortable>
@@ -3960,6 +3983,49 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     return mixColor(color, white, amount);
   }
 
+  function bindTableExports(root) {
+    root.querySelectorAll("[data-scd-export-table]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        exportTableCsv(button);
+      });
+    });
+  }
+
+  function exportTableCsv(button) {
+    const table = button.closest(".scd-table-tools")?.nextElementSibling?.querySelector("table");
+    if (!table) return;
+    const csv = tableToCsv(table);
+    const filename = `${csvFileSafeName(button.getAttribute("data-scd-export-name") || "portlet")}.csv`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function tableToCsv(table) {
+    return Array.from(table.querySelectorAll("tr"))
+      .map((row) => Array.from(row.querySelectorAll("th,td")).map((cell) => csvCell(cell.textContent || "")).join(","))
+      .join("\r\n");
+  }
+
+  function csvCell(value) {
+    const text = normalizeText(value);
+    const escaped = text.replace(/"/g, '""');
+    return /[",\r\n]/.test(escaped) ? `"${escaped}"` : escaped;
+  }
+
+  function csvFileSafeName(value) {
+    const name = normalizeText(value).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+    return name || "portlet";
+  }
+
   function enableTableSorting(root) {
     root.querySelectorAll("table[data-scd-sortable] th[data-scd-sort]").forEach((header) => {
       header.addEventListener("click", () => {
@@ -4151,6 +4217,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
           renderDrill();
         }
       });
+      bindTableExports(root);
       enableTableSorting(root);
       enableDrilldowns(root, summary, (nextFilters, nextRows) => {
         stack.push({ filters: { ...state.filters, ...nextFilters }, rows: nextRows });
