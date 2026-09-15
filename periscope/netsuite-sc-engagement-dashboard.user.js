@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.18
+// @version      2.13.19
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.18",
+    version: "2.13.19",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -64,6 +64,7 @@
       consultant: ["Solution Consultant", "SC", "Staffed SC"],
       leadSc: ["Lead SC", "Lead", "Assign as Lead SC", "Assign: Lead SC"],
       shadow: ["Shadow", "Shadow SC", "Assign: Shadow"],
+      netSuiteNextOnly: ["NetSuite Next Only", "NS Next Only", "Next Only"],
       manager: ["Current Manager", "Assigned To Manager", "Assigned to Manager", "Manager"],
       teamManager: ["Team Manager", "Team Mgr", "SC Team Manager"],
       billingState: ["Billing State/Province", "Billing State", "Billing Province", "Bill State/Province", "Bill State", "State/Province"],
@@ -253,6 +254,10 @@
   }
 
   function isShadowValue(value) {
+    return /^(yes|y|true|t|1)$/i.test(normalizeText(value));
+  }
+
+  function isNetSuiteNextOnlyValue(value) {
     return /^(yes|y|true|t|1)$/i.test(normalizeText(value));
   }
 
@@ -503,6 +508,7 @@
     const consultantIdx = findColumnIndex(headers, CONFIG.columnAliases.consultant);
     const leadScIdx = findColumnIndex(headers, CONFIG.columnAliases.leadSc);
     const shadowIdx = findColumnIndex(headers, CONFIG.columnAliases.shadow);
+    const netSuiteNextOnlyIdx = findColumnIndex(headers, CONFIG.columnAliases.netSuiteNextOnly);
     const managerIdx = findColumnIndex(headers, CONFIG.columnAliases.manager);
     const teamManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.teamManager);
     const billingStateIdx = findColumnIndex(headers, CONFIG.columnAliases.billingState);
@@ -567,6 +573,7 @@
         consultant: cells[consultantIdx] || "(blank)",
         leadSc: leadScIdx >= 0 ? cells[leadScIdx] || "" : "",
         shadow: shadowIdx >= 0 ? cells[shadowIdx] || "" : "",
+        netSuiteNextOnly: netSuiteNextOnlyIdx >= 0 ? cells[netSuiteNextOnlyIdx] || "" : "",
         manager: managerIdx >= 0 ? cells[managerIdx] || "(blank)" : "(manager column missing)",
         teamManager: teamManagerIdx >= 0 ? cells[teamManagerIdx] || "(blank)" : "(team manager column missing)",
         billingState: billingStateIdx >= 0 ? normalizeBillingState(cells[billingStateIdx]) : "(billing state column missing)",
@@ -2155,6 +2162,7 @@
       vertical: "all",
       forecastGrade: "all",
       shadow: "all",
+      netSuiteNextOnly: "all",
       startDate: "",
       endDate: ""
     };
@@ -2181,6 +2189,7 @@
         ${filterSelectWithAttr("Vertical", "vertical", knownVerticalOptions(rows), filters.vertical, "data-scd-deal-lookup-filter")}
         ${filterSelectWithAttr("Forecast Grade", "forecastGrade", uniqueSorted(rows, "forecastGrade"), filters.forecastGrade, "data-scd-deal-lookup-filter")}
         ${filterSelectWithAttr("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow, "data-scd-deal-lookup-filter")}
+        ${filterSelectWithAttr("NetSuite Next Only", "netSuiteNextOnly", ["NetSuite Next Only", "Not NetSuite Next Only"], filters.netSuiteNextOnly, "data-scd-deal-lookup-filter")}
         <label>
           Begin
           <input type="date" data-scd-deal-lookup-filter="startDate" value="${escapeHtml(filters.startDate)}" ${minDate ? `min="${escapeHtml(minDate)}"` : ""} ${maxDate ? `max="${escapeHtml(maxDate)}"` : ""}>
@@ -2245,6 +2254,7 @@
         filters.vertical !== "all" ||
         filters.forecastGrade !== "all" ||
         filters.shadow !== "all" ||
+        filters.netSuiteNextOnly !== "all" ||
         filters.startDate ||
         filters.endDate
     );
@@ -2260,6 +2270,8 @@
       if (filters.forecastGrade !== "all" && normalizeText(row.forecastGrade) !== normalizeText(filters.forecastGrade)) return false;
       if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
       if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
+      if (filters.netSuiteNextOnly === "NetSuite Next Only" && !isNetSuiteNextOnlyValue(row.netSuiteNextOnly)) return false;
+      if (filters.netSuiteNextOnly === "Not NetSuite Next Only" && isNetSuiteNextOnlyValue(row.netSuiteNextOnly)) return false;
       if (filters.startDate && (!row.dateValue || row.dateValue < filters.startDate)) return false;
       if (filters.endDate && (!row.dateValue || row.dateValue > filters.endDate)) return false;
       return true;
@@ -2278,6 +2290,7 @@
       status: "all",
       leadSc: "all",
       shadow: "all",
+      netSuiteNextOnly: "all",
       crossStaffed: "all",
       salesVertical: "all",
       includeValue: "No",
@@ -2297,6 +2310,7 @@
         ${filterSelectWithAttr("Status", "status", uniqueSorted(rows, "status"), filters.status, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow, "data-scd-dashboard-filter")}
+        ${filterSelectWithAttr("NetSuite Next Only", "netSuiteNextOnly", ["NetSuite Next Only", "Not NetSuite Next Only"], filters.netSuiteNextOnly, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Cross Staffed", "crossStaffed", ["Cross Staffed Only", "Not Cross Staffed"], filters.crossStaffed, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Sales Vertical", "salesVertical", salesVerticalOptions(rows), filters.salesVertical, "data-scd-dashboard-filter")}
         ${filterSelectWithAttr("Include Value", "includeValue", ["No", "Yes"], filters.includeValue, "data-scd-dashboard-filter")}
@@ -2321,6 +2335,8 @@
       if (filters.leadSc === "Supporting SC Only" && isLeadScValue(row.leadSc)) return false;
       if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
       if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
+      if (filters.netSuiteNextOnly === "NetSuite Next Only" && !isNetSuiteNextOnlyValue(row.netSuiteNextOnly)) return false;
+      if (filters.netSuiteNextOnly === "Not NetSuite Next Only" && isNetSuiteNextOnlyValue(row.netSuiteNextOnly)) return false;
       if (filters.crossStaffed === "Cross Staffed Only" && !isCrossStaffedRow(row)) return false;
       if (filters.crossStaffed === "Not Cross Staffed" && isCrossStaffedRow(row)) return false;
       if (filters.salesVertical !== "all" && salesVerticalFilterValue(row) !== filters.salesVertical) return false;
@@ -3821,6 +3837,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       flag: "Highlights special attention signals, currently #gravity requests.",
       leadsc: "Shows whether this staffed SC is the lead SC or a supporting SC.",
       shadow: "Shows whether the SC is shadowing the request instead of actively staffing it.",
+      netsuitenextonly: "Flags SCRs marked NetSuite Next Only in the saved search.",
       company: "Customer or prospect tied to the SC Request.",
       billingstateprovince: "Billing State/Province from the saved search, used to assess geographic staffing volume.",
       vrank: "Customer VRank value from the saved search.",
@@ -4073,6 +4090,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         if (key === "salesMotion") return salesMotionBucket(row) === value;
         if (key === "leadSc") return value === "true" ? isLeadScValue(row.leadSc) : !isLeadScValue(row.leadSc);
         if (key === "shadow") return value === "true" ? isShadowValue(row.shadow) : !isShadowValue(row.shadow);
+        if (key === "netSuiteNextOnly") return value === "true" ? isNetSuiteNextOnlyValue(row.netSuiteNextOnly) : !isNetSuiteNextOnlyValue(row.netSuiteNextOnly);
         if (key === "managerMismatch") return value === "true" ? normalizeText(row.manager) !== normalizeText(row.teamManager) : normalizeText(row.manager) === normalizeText(row.teamManager);
         if (key === "oppBucket") return opportunityBucket(row.oppStatus) === value;
         if (key === "deliverable") return deliverableLabel(row) === value;
@@ -4238,6 +4256,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       status: "all",
       leadSc: "all",
       shadow: "all",
+      netSuiteNextOnly: "all",
       month: "all",
       deliverable: "all",
       industry: "all",
@@ -4251,6 +4270,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         ${filterSelect("Status", "status", uniqueSorted(rows, "status"), filters.status)}
         ${filterSelect("Lead SC", "leadSc", ["Lead SC Only", "Supporting SC Only"], filters.leadSc)}
         ${filterSelect("Shadow", "shadow", ["Shadow Only", "Non-Shadow Only"], filters.shadow)}
+        ${filterSelect("NetSuite Next Only", "netSuiteNextOnly", ["NetSuite Next Only", "Not NetSuite Next Only"], filters.netSuiteNextOnly)}
         ${filterSelect("Date range", "month", sortedMonthKeys(rows.reduce((map, row) => {
           incrementMap(map, row.month || "(blank)");
           return map;
@@ -4354,6 +4374,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       if (filters.leadSc === "Supporting SC Only" && isLeadScValue(row.leadSc)) return false;
       if (filters.shadow === "Shadow Only" && !isShadowValue(row.shadow)) return false;
       if (filters.shadow === "Non-Shadow Only" && isShadowValue(row.shadow)) return false;
+      if (filters.netSuiteNextOnly === "NetSuite Next Only" && !isNetSuiteNextOnlyValue(row.netSuiteNextOnly)) return false;
+      if (filters.netSuiteNextOnly === "Not NetSuite Next Only" && isNetSuiteNextOnlyValue(row.netSuiteNextOnly)) return false;
       if (filters.month !== "all" && normalizeText(row.month) !== filters.month) return false;
       if (filters.deliverable !== "all" && deliverableLabel(row) !== filters.deliverable) return false;
       if (filters.industry !== "all" && normalizeText(row.industry) !== filters.industry) return false;
@@ -4365,12 +4387,13 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Shadow", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
         leadScCell(row),
         shadowCell(row),
+        netSuiteNextOnlyLabel(row),
         row.company,
         { display: row.billingState, value: row.billingState, drill: { billingState: row.billingState } },
         { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
@@ -4415,7 +4438,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Shadow", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       ${definitionsBlock(headers)}
@@ -4431,6 +4454,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
                   gravityFlagCell(row),
                   leadScCell(row),
                   shadowCell(row),
+                  netSuiteNextOnlyLabel(row),
                   row.company,
                   { display: row.billingState, value: row.billingState, drill: { billingState: row.billingState } },
                   { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
@@ -4541,6 +4565,15 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       value: isShadow ? 1 : 0,
       html: true,
       drill: { shadow: isShadow ? "true" : "false" }
+    };
+  }
+
+  function netSuiteNextOnlyLabel(row) {
+    const isNextOnly = isNetSuiteNextOnlyValue(row.netSuiteNextOnly);
+    return {
+      display: isNextOnly ? "Yes" : "No",
+      value: isNextOnly ? 1 : 0,
+      drill: { netSuiteNextOnly: isNextOnly ? "true" : "false" }
     };
   }
 
