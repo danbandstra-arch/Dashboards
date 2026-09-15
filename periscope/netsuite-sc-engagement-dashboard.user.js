@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.19
+// @version      2.13.20
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.19",
+    version: "2.13.20",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -2798,11 +2798,16 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       .map((name) => {
         const scRows = rowsForConsultant(summary, name);
         const legacy = normalizeOrg(summary.legacyOrgByConsultant.get(name) || scRows.find((row) => row.legacyOrg)?.legacyOrg || "");
-        const direct = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "Direct").length;
-        const amo = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO").length;
+        const directRows = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "Direct");
+        const amoRows = scRows.filter((row) => normalizeOrg(row.salesTeam || row.requestType) === "AMO");
+        const direct = directRows.length;
+        const amo = amoRows.length;
         if (legacy !== "Direct" && legacy !== "AMO") return null;
+        const blendRows = legacy === "Direct" ? amoRows : directRows;
         const nativeVolume = legacy === "Direct" ? direct : amo;
         const blendVolume = legacy === "Direct" ? amo : direct;
+        const leadBlend = blendRows.filter((row) => isLeadScValue(row.leadSc)).length;
+        const shadowBlend = blendRows.filter((row) => isShadowValue(row.shadow)).length;
         const weightedNative = legacy === "Direct" ? direct * directWeight : amo * amoWeight;
         const weightedBlend = legacy === "Direct" ? amo * amoWeight : direct * directWeight;
         const weightedTotal = weightedNative + weightedBlend;
@@ -2811,6 +2816,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
           legacy,
           nativeVolume,
           blendVolume,
+          leadBlend,
+          shadowBlend,
           total: scRows.length,
           direct,
           amo,
@@ -2829,6 +2836,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         sum.total += row.total;
         sum.nativeVolume += row.nativeVolume;
         sum.blendVolume += row.blendVolume;
+        sum.leadBlend += row.leadBlend;
+        sum.shadowBlend += row.shadowBlend;
         sum.direct += row.direct;
         sum.amo += row.amo;
         sum.weightedNative += row.weightedNative;
@@ -2850,6 +2859,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         total: 0,
         nativeVolume: 0,
         blendVolume: 0,
+        leadBlend: 0,
+        shadowBlend: 0,
         direct: 0,
         amo: 0,
         weightedNative: 0,
@@ -2882,7 +2893,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         A blended SC has worked at least one opportunity for the opposite legacy org. Legacy Direct SCs blend when they work AMO opportunities; Legacy AMO SCs blend when they work Direct opportunities. Direct work is weighted higher because those engagements are typically larger and longer.
       </div>
       ${simpleTable(
-        ["SC", "Legacy Org", "Total", "Direct", "AMO", "Blend Vol", "Blend / Mo", "Weighted Blend", "Weighted / Mo", "% Blend"],
+        ["SC", "Legacy Org", "Total", "Direct", "AMO", "Blend Vol", "Lead", "Shadow", "Blend / Mo", "Weighted Blend", "Weighted / Mo", "% Blend"],
         rows.map((row) => {
           const oppositeOrg = row.legacy === "Direct" ? "AMO" : "Direct";
           return [
@@ -2892,6 +2903,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
             { display: formatNumber(row.direct), value: row.direct, heat: true, drill: { consultant: row.name, salesTeam: "Direct" } },
             { display: formatNumber(row.amo), value: row.amo, heat: true, drill: { consultant: row.name, salesTeam: "AMO" } },
             { display: formatNumber(row.blendVolume), value: row.blendVolume, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
+            { display: formatNumber(row.leadBlend), value: row.leadBlend, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg, leadSc: "true" } },
+            { display: formatNumber(row.shadowBlend), value: row.shadowBlend, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg, shadow: "true" } },
             { display: monthlyVolumeLabel(row.blendVolume, months), value: row.blendVolume / months, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
             { display: formatNumber(row.weightedBlend, 1), value: row.weightedBlend, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
             { display: monthlyVolumeLabel(row.weightedBlend, months), value: row.weightedBlend / months, heat: true, drill: { consultant: row.name, salesTeam: oppositeOrg } },
@@ -2905,6 +2918,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
           { display: formatNumber(totals.direct), value: totals.direct },
           { display: formatNumber(totals.amo), value: totals.amo },
           { display: formatNumber(totals.blendVolume), value: totals.blendVolume },
+          { display: formatNumber(totals.leadBlend), value: totals.leadBlend },
+          { display: formatNumber(totals.shadowBlend), value: totals.shadowBlend },
           { display: monthlyAverageLabel(avgBlendPerMonth), value: avgBlendPerMonth },
           { display: formatNumber(totals.weightedBlend, 1), value: totals.weightedBlend },
           { display: monthlyAverageLabel(avgWeightedBlendPerMonth), value: avgWeightedBlendPerMonth },
