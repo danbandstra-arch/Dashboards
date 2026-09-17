@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.20
+// @version      2.13.21
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.20",
+    version: "2.13.21",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -86,6 +86,7 @@
       asaTotal: ["ASA Total", "ASA"],
       gasaTotal: ["GASA Total", "GASA"],
       arrCommit: ["ARR Commit", "ARR", "Opportunity ARR Commit", "Opp: ARR Commit", "Opp ARR Commit"],
+      acvCommit: ["ACV Commit", "ACV", "Opportunity ACV Commit", "Opp: ACV Commit", "Opp ACV Commit"],
       mgrCommit: ["MGR Commit", "Manager Commit", "Mgr Commit", "Opp: MGR Commit", "Opp MGR Commit"],
       vlCommit: ["VL Commit", "VP Commit", "Sales VP Commit", "Opp: VL Commit", "Opp VL Commit"],
       probability: ["Probability %", "Probability", "Prob %"],
@@ -325,6 +326,55 @@
     return row.arrCommit || 0;
   }
 
+  function acvCommit(row) {
+    return row.acvCommit || 0;
+  }
+
+  const COMMIT_BUCKETS = [
+    { label: "10-24k", min: 10000, max: 25000 },
+    { label: "25-49k", min: 25000, max: 50000 },
+    { label: "50-99k", min: 50000, max: 100000 },
+    { label: "100-199k", min: 100000, max: 200000 },
+    { label: "200-499k", min: 200000, max: 500000 },
+    { label: "500k-999k", min: 500000, max: 1000000 },
+    { label: "1M+", min: 1000000, max: Number.POSITIVE_INFINITY }
+  ];
+
+  function commitBucketLabel(value) {
+    const amount = Number(value) || 0;
+    return COMMIT_BUCKETS.find((bucket) => amount >= bucket.min && amount < bucket.max)?.label || "";
+  }
+
+  function uniqueDealKey(row, rowIndex = 0) {
+    const opportunity = normalizeText(row.opportunity).toLowerCase();
+    if (opportunity) return `opportunity:${opportunity}`;
+    const internalId = normalizeText(row.internalId).toLowerCase();
+    if (internalId) return `id:${internalId}`;
+    return `row:${rowIndex}`;
+  }
+
+  function commitBucketSummary(rows, field) {
+    const deals = new Map();
+    rows.forEach((row, rowIndex) => {
+      const key = uniqueDealKey(row, rowIndex);
+      const amount = Number(row[field]) || 0;
+      deals.set(key, Math.max(deals.get(key) || 0, amount));
+    });
+    const buckets = COMMIT_BUCKETS.map((bucket) => ({ ...bucket, deals: 0, total: 0 }));
+    deals.forEach((amount) => {
+      const label = commitBucketLabel(amount);
+      const bucket = buckets.find((candidate) => candidate.label === label);
+      if (!bucket) return;
+      bucket.deals += 1;
+      bucket.total += amount;
+    });
+    return {
+      buckets,
+      qualifiedDeals: buckets.reduce((sum, bucket) => sum + bucket.deals, 0),
+      total: buckets.reduce((sum, bucket) => sum + bucket.total, 0)
+    };
+  }
+
   function mgrCommit(row) {
     return row.mgrCommit || 0;
   }
@@ -530,6 +580,7 @@
     const asaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.asaTotal);
     const gasaTotalIdx = findColumnIndex(headers, CONFIG.columnAliases.gasaTotal);
     const arrCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.arrCommit);
+    const acvCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.acvCommit);
     const mgrCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.mgrCommit);
     const vlCommitIdx = findColumnIndex(headers, CONFIG.columnAliases.vlCommit);
     const probabilityIdx = findColumnIndex(headers, CONFIG.columnAliases.probability);
@@ -598,6 +649,7 @@
         asaTotal: asaTotalIdx >= 0 ? parseMoney(cells[asaTotalIdx]) : 0,
         gasaTotal: gasaTotalIdx >= 0 ? parseMoney(cells[gasaTotalIdx]) : 0,
         arrCommit: arrCommitIdx >= 0 ? parseMoney(cells[arrCommitIdx]) : 0,
+        acvCommit: acvCommitIdx >= 0 ? parseMoney(cells[acvCommitIdx]) : 0,
         mgrCommit: mgrCommitIdx >= 0 ? parseMoney(cells[mgrCommitIdx]) : 0,
         vlCommit: vlCommitIdx >= 0 ? parseMoney(cells[vlCommitIdx]) : 0,
         probability: probabilityIdx >= 0 ? parseProbability(cells[probabilityIdx]) : null,
@@ -2013,6 +2065,16 @@
             </div>
             <div class="scd-grid scd-deep-grid">
               <div class="scd-panel">
+                <div class="scd-panel-title">ARR Commit Distribution</div>
+                ${commitBucketPortlet(active, "arrCommit")}
+              </div>
+              <div class="scd-panel">
+                <div class="scd-panel-title">ACV Commit Distribution</div>
+                ${commitBucketPortlet(active, "acvCommit")}
+              </div>
+            </div>
+            <div class="scd-grid scd-deep-grid">
+              <div class="scd-panel">
                 <div class="scd-panel-title">Upsell Product Mix</div>
                 ${deliverableProductPortlet(active, "Upsell")}
               </div>
@@ -3012,6 +3074,33 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     );
   }
 
+  function commitBucketPortlet(summary, field) {
+    const result = commitBucketSummary(summary.rows, field);
+    const drillKey = field === "acvCommit" ? "acvCommitBucket" : "arrCommitBucket";
+    const exportName = field === "acvCommit" ? "acv-commit-distribution" : "arr-commit-distribution";
+    return simpleTable(
+      ["Commit Range", "Deals", "% of Deals", "Commit Total", "Avg Commit"],
+      result.buckets.map((bucket) => {
+        const drill = { [drillKey]: bucket.label };
+        return [
+          { display: bucket.label, value: bucket.min, drill },
+          { display: formatNumber(bucket.deals), value: bucket.deals, heat: true, drill },
+          { display: result.qualifiedDeals ? `${((bucket.deals / result.qualifiedDeals) * 100).toFixed(1)}%` : "0.0%", value: result.qualifiedDeals ? bucket.deals / result.qualifiedDeals : 0, heat: true, drill },
+          { display: formatCurrency(bucket.total), value: bucket.total, heat: true, drill },
+          { display: formatCurrency(bucket.deals ? bucket.total / bucket.deals : 0), value: bucket.deals ? bucket.total / bucket.deals : 0, heat: true, drill }
+        ];
+      }),
+      [
+        { display: "Total", value: "Total" },
+        { display: formatNumber(result.qualifiedDeals), value: result.qualifiedDeals },
+        { display: result.qualifiedDeals ? "100.0%" : "0.0%", value: result.qualifiedDeals ? 1 : 0 },
+        { display: formatCurrency(result.total), value: result.total },
+        { display: formatCurrency(result.qualifiedDeals ? result.total / result.qualifiedDeals : 0), value: result.qualifiedDeals ? result.total / result.qualifiedDeals : 0 }
+      ],
+      { key: exportName }
+    );
+  }
+
   function deliverableProductPortlet(summary, deliverableName) {
     const matching = summary.rows.filter((row) => normalizeText(deliverableLabel(row)).toLowerCase() === deliverableName.toLowerCase());
     if (!matching.length) return `<div class="scd-warning">No ${escapeHtml(deliverableName)} requests found.</div>`;
@@ -3884,6 +3973,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       status: "SC engagement status from the saved search.",
       probability: "Opportunity probability percentage from the saved search.",
       arrcommit: "ARR Commit value from the saved search.",
+      acvcommit: "ACV Commit value from the saved search.",
       mgrcommit: "Manager Commit value from the saved search.",
       vlcommit: "VL/VP Commit value from the saved search.",
       pipelinerev: "Open opportunity revenue. Uses GASA Total when available, otherwise ASA Total.",
@@ -3910,6 +4000,11 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       staffing: "Share of total staffing volume represented by this row.",
       request: "Count of SC Requests in the current view/filter context.",
       requests: "Count of SC Requests in the current view/filter context.",
+      commitrange: "Commit-value band. Deals below $10K are excluded from these distribution portlets.",
+      deals: "Distinct deals, deduplicated by Opportunity and then Internal ID when Opportunity is unavailable.",
+      ofdeals: "Share of qualifying distinct deals represented by this commit range.",
+      committotal: "Sum of commit values for the distinct deals in this range.",
+      avgcommit: "Average commit value per distinct deal in this range.",
       ofshown: "This row's share of the rows currently shown in the portlet.",
       amo: "Count of requests from the AMO sales org.",
       direct: "Count of requests from the Direct sales org.",
@@ -4097,7 +4192,13 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   }
 
   function matchingRows(rows, filters) {
-    return rows.filter((row) =>
+    const arrCommitDealKeys = filters.arrCommitBucket
+      ? new Set(rows.map((row, rowIndex) => ({ row, rowIndex })).filter(({ row }) => commitBucketLabel(arrCommit(row)) === filters.arrCommitBucket).map(({ row, rowIndex }) => uniqueDealKey(row, rowIndex)))
+      : null;
+    const acvCommitDealKeys = filters.acvCommitBucket
+      ? new Set(rows.map((row, rowIndex) => ({ row, rowIndex })).filter(({ row }) => commitBucketLabel(acvCommit(row)) === filters.acvCommitBucket).map(({ row, rowIndex }) => uniqueDealKey(row, rowIndex)))
+      : null;
+    return rows.filter((row, rowIndex) =>
       Object.entries(filters).every(([key, value]) => {
         if (!value) return true;
         if (key === "requestType") return requestTypeLabel(row) === value;
@@ -4117,6 +4218,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         if (key === "forecastGrade") return forecastGradeLabel(row) === value;
         if (key === "industrySubgroup") return normalizeText(row.industrySubgroup) === normalizeText(value);
         if (key === "product") return productList(row).some((productName) => normalizeText(productName) === normalizeText(value));
+        if (key === "arrCommitBucket") return arrCommitDealKeys.has(uniqueDealKey(row, rowIndex));
+        if (key === "acvCommitBucket") return acvCommitDealKeys.has(uniqueDealKey(row, rowIndex));
         return normalizeText(row[key]) === normalizeText(value);
       })
     );
@@ -4182,6 +4285,16 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
               <div class="scd-panel">
                 <div class="scd-panel-title">Staffed SCs</div>
                 ${staffedScTable(summary)}
+              </div>
+              <div class="scd-grid">
+                <div class="scd-panel">
+                  <div class="scd-panel-title">ARR Commit Distribution</div>
+                  ${commitBucketPortlet(summary, "arrCommit")}
+                </div>
+                <div class="scd-panel">
+                  <div class="scd-panel-title">ACV Commit Distribution</div>
+                  ${commitBucketPortlet(summary, "acvCommit")}
+                </div>
               </div>
               <div class="scd-grid">
                 <div class="scd-panel">
@@ -4402,7 +4515,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "ACV Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
@@ -4439,6 +4552,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         formatCurrency(arrCommit(row)),
         formatCurrency(mgrCommit(row)),
         formatCurrency(vlCommit(row)),
+        formatCurrency(acvCommit(row)),
         formatCurrency(pipelineRevenue(row)),
         formatCurrency(closedRevenue(row)),
         formatCurrency(rowRevenue(row)),
@@ -4453,7 +4567,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "ACV Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       ${definitionsBlock(headers)}
@@ -4497,6 +4611,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
                   formatCurrency(arrCommit(row)),
                   formatCurrency(mgrCommit(row)),
                   formatCurrency(vlCommit(row)),
+                  formatCurrency(acvCommit(row)),
                   formatCurrency(pipelineRevenue(row)),
                   formatCurrency(rowRevenue(row)),
                   formatCurrency(weightedRevenue(row)),
