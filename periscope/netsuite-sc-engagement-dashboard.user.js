@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.22
+// @version      2.13.24
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.22",
+    version: "2.13.24",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -1519,6 +1519,15 @@
         background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(251,249,248,0.72));
         box-shadow: 0 10px 24px rgba(49,45,42,0.06);
       }
+      .scd-kpi-drill {
+        cursor: pointer;
+      }
+      .scd-kpi-drill:hover,
+      .scd-kpi-drill:focus-visible {
+        border-color: var(--rw-blue);
+        box-shadow: 0 12px 28px rgba(49,45,42,0.12);
+        outline: none;
+      }
       .scd-kpi-label { color: var(--rw-slate); font-size: 11px; text-transform: uppercase; }
       .scd-kpi-value { color: var(--rw-ink-deep); font-size: 22px; font-weight: 700; margin-top: 4px; }
       .scd-grid {
@@ -1558,6 +1567,16 @@
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
+      }
+      .scd-demo-style-vertical {
+        align-items: center;
+        color: var(--rw-slate);
+        display: inline-flex;
+        font-size: 11px;
+        gap: 5px;
+      }
+      .scd-demo-style-vertical select {
+        max-width: 180px;
       }
       .scd-demo-style-toggle {
         align-items: center;
@@ -2048,7 +2067,8 @@
     let activeIndex = Math.max(0, views.findIndex((view) => view.name === "All Verticals"));
     let dashboardFilters = makeEmptyDashboardFilters();
     let dealLookupFilters = makeEmptyDealLookupFilters();
-    let visibleDemoStyles = new Set(DEMO_STYLES);
+    let visibleDemoStyles = new Set(DEMO_STYLES.filter((style) => style !== "Not Identified"));
+    let selectedDemoStyleVertical = "all";
 
     function render() {
       const activeBase = views[activeIndex];
@@ -2109,7 +2129,7 @@
           </div>
           ${isDealLookup ? dealLookupFilterBar(summaryData.org.rows, dealLookupFilters) : dashboardFilterBar(dashboardBaseRows, dashboardFilters)}
           <div class="scd-body">
-            ${isDealLookup ? dealLookupBody(lookupRows, dealLookupFilters) : isExecutiveOverview ? executiveOverviewBody(active, summaryData) : isNetSuiteNextDashboard ? netSuiteNextDashboardBody(active, visibleDemoStyles) : `
+            ${isDealLookup ? dealLookupBody(lookupRows, dealLookupFilters) : isExecutiveOverview ? executiveOverviewBody(active, summaryData) : isNetSuiteNextDashboard ? netSuiteNextDashboardBody(active, visibleDemoStyles, selectedDemoStyleVertical) : `
             <div class="scd-kpis">
               ${kpi("Total Requests", active.total)}
               ${kpi("Unique SCs Staffed", active.consultants.size)}
@@ -2284,9 +2304,13 @@
           render();
         });
       });
+      root.querySelector("[data-scd-demo-style-vertical]")?.addEventListener("change", (event) => {
+        selectedDemoStyleVertical = event.target.value || "all";
+        render();
+      });
       root.querySelector("[data-scd-export-demo-style-trend]")?.addEventListener("click", (event) => {
         event.preventDefault();
-        exportDemoStyleTrendCsv(active.rows);
+        exportDemoStyleTrendCsv(active.rows, selectedDemoStyleVertical);
       });
       root.querySelectorAll("[data-scd-deal-lookup-filter]").forEach((input) => {
         input.addEventListener("change", (event) => {
@@ -2327,9 +2351,10 @@
     ensureLauncher();
   }
 
-  function kpi(label, value, subtext = "") {
+  function kpi(label, value, subtext = "", drill = null) {
+    const drillAttribute = drill ? ` data-scd-drill="${escapeHtml(JSON.stringify(drill))}" role="button" tabindex="0"` : "";
     return `
-      <div class="scd-kpi">
+      <div class="scd-kpi${drill ? " scd-kpi-drill" : ""}"${drillAttribute}>
         <div class="scd-kpi-label">${escapeHtml(label)}</div>
         <div class="scd-kpi-value">${escapeHtml(formatNumber(value))}</div>
         ${subtext ? `<div class="scd-muted">${escapeHtml(subtext)}</div>` : ""}
@@ -3780,7 +3805,19 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     }[style] || "#7A8588";
   }
 
-  function demoStyleTrendControls(selectedStyles) {
+  function demoStyleTrendVerticals(rows) {
+    return Array.from(new Set(rows.map((row) => normalizeText(row.vertical)).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }
+
+  function demoStyleTrendRowsForVertical(rows, selectedVertical = "all") {
+    const scopedRows = selectedVertical === "all"
+      ? rows
+      : rows.filter((row) => normalizeText(row.vertical) === normalizeText(selectedVertical));
+    return demoStyleTrendRows(scopedRows);
+  }
+
+  function demoStyleTrendControls(selectedStyles, rows = [], selectedVertical = "all") {
+    const verticals = demoStyleTrendVerticals(rows);
     return `
       <div class="scd-demo-style-toggles" aria-label="Visible demo styles">
         ${DEMO_STYLES.map((style) => `
@@ -3790,13 +3827,20 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
             <span>${escapeHtml(style)}</span>
           </label>
         `).join("")}
+        <label class="scd-demo-style-vertical">
+          <span>SC Vertical</span>
+          <select data-scd-demo-style-vertical aria-label="SC Vertical for Demo Style Progression">
+            <option value="all"${selectedVertical === "all" ? " selected" : ""}>All</option>
+            ${verticals.map((vertical) => `<option value="${escapeHtml(vertical)}"${selectedVertical === vertical ? " selected" : ""}>${escapeHtml(vertical)}</option>`).join("")}
+          </select>
+        </label>
         <button class="scd-export-link" type="button" data-scd-export-demo-style-trend>Export CSV</button>
       </div>
     `;
   }
 
-  function demoStyleTrendChart(rows, selectedStyles) {
-    const trendRows = demoStyleTrendRows(rows);
+  function demoStyleTrendChart(rows, selectedStyles, selectedVertical = "all") {
+    const trendRows = demoStyleTrendRowsForVertical(rows, selectedVertical);
     const visibleStyles = DEMO_STYLES.filter((style) => selectedStyles.has(style));
     if (!trendRows.length) return `<div class="scd-warning">No June 2026 or later request dates are available for the Demo Style trend.</div>`;
     if (!visibleStyles.length) return `<div class="scd-warning">Select at least one Demo Style to display the trend.</div>`;
@@ -3922,24 +3966,24 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     );
   }
 
-  function netSuiteNextDashboardBody(summary, selectedStyles) {
+  function netSuiteNextDashboardBody(summary, selectedStyles, selectedVertical = "all") {
     const identifiedDemos = summary.rows.filter((row) => demoStyleLabel(row) !== "Not Identified").length;
     const nextDemos = summary.rows.filter((row) => demoStyleLabel(row) === "Next").length;
     const nextOnly = summary.rows.filter((row) => isNetSuiteNextOnlyValue(row.netSuiteNextOnly)).length;
     return `
       <div class="scd-kpis">
-        ${kpi("Demo Requests", summary.total)}
-        ${kpi("Identified Demo Style", identifiedDemos, `${percent(identifiedDemos, summary.total)}% of requests`)}
-        ${kpi("Next Demos", nextDemos, `${percent(nextDemos, summary.total)}% of requests`)}
-        ${kpi("NetSuite Next Only", nextOnly, `${percent(nextOnly, summary.total)}% provisioning recommendation`)}
+        ${kpi("Demo Requests", summary.total, "", {})}
+        ${kpi("Identified Demo Style", identifiedDemos, `${percent(identifiedDemos, summary.total)}% of requests`, { demoStyleIdentified: "true" })}
+        ${kpi("Next Demos", nextDemos, `${percent(nextDemos, summary.total)}% of requests`, { demoStyle: "Next" })}
+        ${kpi("NetSuite Next Only", nextOnly, `${percent(nextOnly, summary.total)}% provisioning recommendation`, { netSuiteNextRecommendation: "Next Only" })}
       </div>
       <div class="scd-panel scd-deep-grid">
         <div class="scd-panel-title">Demo Style by SC Industry</div>
         ${demoStyleIndustryTable(summary)}
       </div>
       <div class="scd-panel scd-deep-grid">
-        <div class="scd-panel-title scd-panel-title-actions"><span>Demo Style Progression</span>${demoStyleTrendControls(selectedStyles)}</div>
-        ${demoStyleTrendChart(summary.rows, selectedStyles)}
+        <div class="scd-panel-title scd-panel-title-actions"><span>Demo Style Progression</span>${demoStyleTrendControls(selectedStyles, summary.rows, selectedVertical)}</div>
+        ${demoStyleTrendChart(summary.rows, selectedStyles, selectedVertical)}
       </div>
       <div class="scd-panel scd-deep-grid">
         <div class="scd-panel-title">NetSuite Next Only by Company Industry</div>
@@ -4438,17 +4482,17 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function exportDemoStyleTrendCsv(rows) {
+  function exportDemoStyleTrendCsv(rows, selectedVertical = "all") {
     const csvRows = [
       ["Month", ...DEMO_STYLES],
-      ...demoStyleTrendRows(rows).map((row) => [row.month, ...DEMO_STYLES.map((style) => row[style])])
+      ...demoStyleTrendRowsForVertical(rows, selectedVertical).map((row) => [row.month, ...DEMO_STYLES.map((style) => row[style])])
     ];
     const csv = csvRows.map((row) => row.map(csvCell).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "demo-style-progression.csv";
+    link.download = `demo-style-progression-${selectedVertical === "all" ? "all-sc-verticals" : csvFileSafeName(selectedVertical)}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -4538,6 +4582,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         if (key === "industrySubgroup") return normalizeText(row.industrySubgroup) === normalizeText(value);
         if (key === "product") return productList(row).some((productName) => normalizeText(productName) === normalizeText(value));
         if (key === "demoStyle") return demoStyleLabel(row) === value;
+        if (key === "demoStyleIdentified") return value === "true" ? demoStyleLabel(row) !== "Not Identified" : demoStyleLabel(row) === "Not Identified";
         if (key === "netSuiteNextRecommendation") return netSuiteNextRecommendationLabel(row) === value;
         if (key === "arrCommitBucket") return arrCommitDealKeys.has(uniqueDealKey(row, rowIndex));
         if (key === "acvCommitBucket") return acvCommitDealKeys.has(uniqueDealKey(row, rowIndex));
