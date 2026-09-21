@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.21
+// @version      2.13.22
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.21",
+    version: "2.13.22",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -65,6 +65,7 @@
       leadSc: ["Lead SC", "Lead", "Assign as Lead SC", "Assign: Lead SC"],
       shadow: ["Shadow", "Shadow SC", "Assign: Shadow"],
       netSuiteNextOnly: ["NetSuite Next Only", "NS Next Only", "Next Only"],
+      demoStyle: ["Demo Style", "Demonstration Style", "Demo Type"],
       manager: ["Current Manager", "Assigned To Manager", "Assigned to Manager", "Manager"],
       teamManager: ["Team Manager", "Team Mgr", "SC Team Manager"],
       billingState: ["Billing State/Province", "Billing State", "Billing Province", "Bill State/Province", "Bill State", "State/Province"],
@@ -353,6 +354,75 @@
     return `row:${rowIndex}`;
   }
 
+  const DEMO_STYLES = ["Classic", "Hybrid", "Next", "Not Identified"];
+  const NETSUITE_NEXT_DASHBOARD_START_MONTH = "2026-06";
+
+  function demoStyleLabel(row) {
+    const value = normalizeText(row.demoStyle).toLowerCase();
+    if (value === "classic") return "Classic";
+    if (value === "hybrid") return "Hybrid";
+    if (value === "next") return "Next";
+    return "Not Identified";
+  }
+
+  function demoStyleTrendRows(rows) {
+    const months = Array.from(new Set(rows.map((row) => row.month).filter((month) => /^\d{4}-\d{2}$/.test(month) && month >= NETSUITE_NEXT_DASHBOARD_START_MONTH))).sort();
+    return months.map((month) => {
+      const trend = { month };
+      DEMO_STYLES.forEach((style) => {
+        trend[style] = 0;
+      });
+      rows.filter((row) => row.month === month).forEach((row) => {
+        trend[demoStyleLabel(row)] += 1;
+      });
+      return trend;
+    });
+  }
+
+  function demoStyleIndustryMetrics(rows) {
+    const byIndustry = new Map();
+    rows.forEach((row) => {
+      const industry = normalizeText(row.vertical) || "(blank)";
+      if (!byIndustry.has(industry)) {
+        const metric = { industry, total: 0 };
+        DEMO_STYLES.forEach((style) => {
+          metric[style] = 0;
+        });
+        byIndustry.set(industry, metric);
+      }
+      const metric = byIndustry.get(industry);
+      metric.total += 1;
+      metric[demoStyleLabel(row)] += 1;
+    });
+    return Array.from(byIndustry.values()).sort((a, b) => b.total - a.total || a.industry.localeCompare(b.industry));
+  }
+
+  function nextOnlyIndustryMetrics(rows) {
+    const byIndustry = new Map();
+    rows.forEach((row) => {
+      const industry = normalizeText(row.industry) || "(blank)";
+      if (!byIndustry.has(industry)) byIndustry.set(industry, { industry, total: 0, nextOnly: 0, classicToggle: 0, notIdentified: 0, subgroups: new Set() });
+      const metric = byIndustry.get(industry);
+      metric.total += 1;
+      const recommendation = netSuiteNextRecommendationLabel(row);
+      if (recommendation === "Next Only") metric.nextOnly += 1;
+      else if (recommendation === "Classic / Toggle") metric.classicToggle += 1;
+      else metric.notIdentified += 1;
+      const subgroup = normalizeText(row.industrySubgroup);
+      if (subgroup && !subgroup.startsWith("(")) metric.subgroups.add(subgroup);
+    });
+    return Array.from(byIndustry.values())
+      .map((metric) => ({ ...metric, subgroups: Array.from(metric.subgroups).sort() }))
+      .sort((a, b) => b.total - a.total || a.industry.localeCompare(b.industry));
+  }
+
+  function netSuiteNextRecommendationLabel(row) {
+    const value = normalizeText(row.netSuiteNextOnly).toLowerCase();
+    if (value === "yes") return "Next Only";
+    if (value === "no") return "Classic / Toggle";
+    return "Not Identified";
+  }
+
   function commitBucketSummary(rows, field) {
     const deals = new Map();
     rows.forEach((row, rowIndex) => {
@@ -559,6 +629,7 @@
     const leadScIdx = findColumnIndex(headers, CONFIG.columnAliases.leadSc);
     const shadowIdx = findColumnIndex(headers, CONFIG.columnAliases.shadow);
     const netSuiteNextOnlyIdx = findColumnIndex(headers, CONFIG.columnAliases.netSuiteNextOnly);
+    const demoStyleIdx = findColumnIndex(headers, CONFIG.columnAliases.demoStyle);
     const managerIdx = findColumnIndex(headers, CONFIG.columnAliases.manager);
     const teamManagerIdx = findColumnIndex(headers, CONFIG.columnAliases.teamManager);
     const billingStateIdx = findColumnIndex(headers, CONFIG.columnAliases.billingState);
@@ -625,6 +696,7 @@
         leadSc: leadScIdx >= 0 ? cells[leadScIdx] || "" : "",
         shadow: shadowIdx >= 0 ? cells[shadowIdx] || "" : "",
         netSuiteNextOnly: netSuiteNextOnlyIdx >= 0 ? cells[netSuiteNextOnlyIdx] || "" : "",
+        demoStyle: demoStyleIdx >= 0 ? cells[demoStyleIdx] || "" : "",
         manager: managerIdx >= 0 ? cells[managerIdx] || "(blank)" : "(manager column missing)",
         teamManager: teamManagerIdx >= 0 ? cells[teamManagerIdx] || "(blank)" : "(team manager column missing)",
         billingState: billingStateIdx >= 0 ? normalizeBillingState(cells[billingStateIdx]) : "(billing state column missing)",
@@ -1474,6 +1546,40 @@
         font-weight: 700;
         padding: 11px 14px;
       }
+      .scd-panel-title-actions {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: space-between;
+      }
+      .scd-demo-style-toggles {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .scd-demo-style-toggle {
+        align-items: center;
+        color: var(--rw-slate);
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 11px;
+        font-weight: 700;
+        gap: 4px;
+      }
+      .scd-demo-style-toggle input { margin: 0; }
+      .scd-demo-style-swatch {
+        border-radius: 50%;
+        display: inline-block;
+        height: 8px;
+        width: 8px;
+      }
+      .scd-demo-trend { padding: 14px; }
+      .scd-demo-trend svg { display: block; height: auto; max-width: 100%; width: 100%; }
+      .scd-demo-gridline { stroke: rgba(105,119,120,0.2); stroke-width: 1; }
+      .scd-demo-axis-label { fill: #697778; font-size: 11px; }
+      .scd-demo-series { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }
       .scd-table {
         width: 100%;
         border-collapse: collapse;
@@ -1938,16 +2044,18 @@
     root.id = ROOT_ID;
     root.className = "scd-modal-root";
 
-    const views = [{ name: "Deal Lookup", isDealLookup: true }, { name: "Executive Overview", isExecutiveOverview: true }, summaryData.org, ...(summaryData.teams || []), ...summaryData.verticals];
+    const views = [{ name: "Deal Lookup", isDealLookup: true }, { name: "Executive Overview", isExecutiveOverview: true }, { name: "NetSuite Next Dashboard", isNetSuiteNextDashboard: true }, summaryData.org, ...(summaryData.teams || []), ...summaryData.verticals];
     let activeIndex = Math.max(0, views.findIndex((view) => view.name === "All Verticals"));
     let dashboardFilters = makeEmptyDashboardFilters();
     let dealLookupFilters = makeEmptyDealLookupFilters();
+    let visibleDemoStyles = new Set(DEMO_STYLES);
 
     function render() {
       const activeBase = views[activeIndex];
       const isDealLookup = Boolean(activeBase.isDealLookup);
       const isExecutiveOverview = Boolean(activeBase.isExecutiveOverview);
-      const dashboardBaseRows = isExecutiveOverview ? summaryData.org.rows : activeBase.rows;
+      const isNetSuiteNextDashboard = Boolean(activeBase.isNetSuiteNextDashboard);
+      const dashboardBaseRows = isExecutiveOverview || isNetSuiteNextDashboard ? summaryData.org.rows : activeBase.rows;
       const lookupRows = isDealLookup ? applyDealLookupFilters(summaryData.org.rows, dealLookupFilters) : [];
       const activeRows = isDealLookup ? [] : applyDashboardFilters(dashboardBaseRows, dashboardFilters);
       const active = summaryFromRows(activeBase.name, activeRows);
@@ -2001,7 +2109,7 @@
           </div>
           ${isDealLookup ? dealLookupFilterBar(summaryData.org.rows, dealLookupFilters) : dashboardFilterBar(dashboardBaseRows, dashboardFilters)}
           <div class="scd-body">
-            ${isDealLookup ? dealLookupBody(lookupRows, dealLookupFilters) : isExecutiveOverview ? executiveOverviewBody(active, summaryData) : `
+            ${isDealLookup ? dealLookupBody(lookupRows, dealLookupFilters) : isExecutiveOverview ? executiveOverviewBody(active, summaryData) : isNetSuiteNextDashboard ? netSuiteNextDashboardBody(active, visibleDemoStyles) : `
             <div class="scd-kpis">
               ${kpi("Total Requests", active.total)}
               ${kpi("Unique SCs Staffed", active.consultants.size)}
@@ -2166,6 +2274,19 @@
           else HEAT_DISABLED_TABLES.add(key);
           render();
         });
+      });
+      root.querySelectorAll("[data-scd-demo-style-toggle]").forEach((input) => {
+        input.addEventListener("change", (event) => {
+          const style = event.target.getAttribute("data-scd-demo-style-toggle");
+          if (!style) return;
+          if (event.target.checked) visibleDemoStyles.add(style);
+          else visibleDemoStyles.delete(style);
+          render();
+        });
+      });
+      root.querySelector("[data-scd-export-demo-style-trend]")?.addEventListener("click", (event) => {
+        event.preventDefault();
+        exportDemoStyleTrendCsv(active.rows);
       });
       root.querySelectorAll("[data-scd-deal-lookup-filter]").forEach((input) => {
         input.addEventListener("change", (event) => {
@@ -3650,6 +3771,183 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     `;
   }
 
+  function demoStyleColor(style) {
+    return {
+      Classic: "#B8862E",
+      Hybrid: "#A05C7B",
+      Next: "#437C94",
+      "Not Identified": "#7A8588"
+    }[style] || "#7A8588";
+  }
+
+  function demoStyleTrendControls(selectedStyles) {
+    return `
+      <div class="scd-demo-style-toggles" aria-label="Visible demo styles">
+        ${DEMO_STYLES.map((style) => `
+          <label class="scd-demo-style-toggle">
+            <input type="checkbox" data-scd-demo-style-toggle="${escapeHtml(style)}"${selectedStyles.has(style) ? " checked" : ""}>
+            <span class="scd-demo-style-swatch" style="background:${demoStyleColor(style)}"></span>
+            <span>${escapeHtml(style)}</span>
+          </label>
+        `).join("")}
+        <button class="scd-export-link" type="button" data-scd-export-demo-style-trend>Export CSV</button>
+      </div>
+    `;
+  }
+
+  function demoStyleTrendChart(rows, selectedStyles) {
+    const trendRows = demoStyleTrendRows(rows);
+    const visibleStyles = DEMO_STYLES.filter((style) => selectedStyles.has(style));
+    if (!trendRows.length) return `<div class="scd-warning">No June 2026 or later request dates are available for the Demo Style trend.</div>`;
+    if (!visibleStyles.length) return `<div class="scd-warning">Select at least one Demo Style to display the trend.</div>`;
+
+    const width = 820;
+    const height = 300;
+    const left = 48;
+    const right = 18;
+    const top = 20;
+    const bottom = 48;
+    const chartWidth = width - left - right;
+    const chartHeight = height - top - bottom;
+    const maxValue = Math.max(1, ...trendRows.flatMap((row) => visibleStyles.map((style) => row[style])));
+    const yTicks = [0, Math.ceil(maxValue / 2), maxValue].filter((value, index, values) => values.indexOf(value) === index);
+    const xFor = (index) => trendRows.length === 1 ? left + chartWidth / 2 : left + (index / (trendRows.length - 1)) * chartWidth;
+    const yFor = (value) => top + chartHeight - (value / maxValue) * chartHeight;
+    const monthLabel = (month) => {
+      const [year, monthNumber] = month.split("-").map(Number);
+      return new Date(year, monthNumber - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+    };
+
+    return `
+      <div class="scd-demo-trend">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Demo Style progression by month">
+          ${yTicks.map((value) => `<line class="scd-demo-gridline" x1="${left}" x2="${width - right}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="scd-demo-axis-label" x="${left - 8}" y="${yFor(value) + 4}" text-anchor="end">${formatNumber(value)}</text>`).join("")}
+          ${trendRows.map((row, index) => `<text class="scd-demo-axis-label" x="${xFor(index)}" y="${height - 18}" text-anchor="middle">${escapeHtml(monthLabel(row.month))}</text>`).join("")}
+          ${visibleStyles.map((style) => {
+            const points = trendRows.map((row, index) => `${xFor(index)},${yFor(row[style])}`).join(" ");
+            return `<polyline class="scd-demo-series" data-scd-demo-style-line="${escapeHtml(style)}" points="${points}" stroke="${demoStyleColor(style)}"></polyline>${trendRows.map((row, index) => `<circle cx="${xFor(index)}" cy="${yFor(row[style])}" r="3.5" fill="${demoStyleColor(style)}"><title>${escapeHtml(`${style}: ${formatNumber(row[style])} in ${monthLabel(row.month)}`)}</title></circle>`).join("")}`;
+          }).join("")}
+        </svg>
+      </div>
+    `;
+  }
+
+  function demoStyleIndustryTable(summary) {
+    const metrics = demoStyleIndustryMetrics(summary.rows);
+    const totals = metrics.reduce((total, metric) => {
+      total.total += metric.total;
+      DEMO_STYLES.forEach((style) => {
+        total[style] += metric[style];
+      });
+      return total;
+    }, { total: 0, Classic: 0, Hybrid: 0, Next: 0, "Not Identified": 0 });
+    const headers = ["SC Industry", ...DEMO_STYLES, "Total", "% Next"];
+    return simpleTable(
+      headers,
+      metrics.map((metric) => {
+        const industryDrill = { vertical: metric.industry };
+        return [
+          { display: metric.industry, value: metric.industry, drill: industryDrill },
+          ...DEMO_STYLES.map((style) => ({ display: formatNumber(metric[style]), value: metric[style], heat: true, drill: { ...industryDrill, demoStyle: style } })),
+          { display: formatNumber(metric.total), value: metric.total, heat: true, drill: industryDrill },
+          { display: `${percent(metric.Next, metric.total)}%`, value: metric.total ? metric.Next / metric.total : 0, heat: true, drill: { ...industryDrill, demoStyle: "Next" } }
+        ];
+      }),
+      [
+        { display: "Total", value: "Total" },
+        ...DEMO_STYLES.map((style) => ({ display: formatNumber(totals[style]), value: totals[style] })),
+        { display: formatNumber(totals.total), value: totals.total },
+        { display: `${percent(totals.Next, totals.total)}%`, value: totals.total ? totals.Next / totals.total : 0 }
+      ],
+      { key: "demo-style-by-sc-industry" }
+    );
+  }
+
+  function nextOnlyIndustryTable(summary) {
+    const metrics = nextOnlyIndustryMetrics(summary.rows);
+    const totals = metrics.reduce((total, metric) => ({ total: total.total + metric.total, nextOnly: total.nextOnly + metric.nextOnly, classicToggle: total.classicToggle + metric.classicToggle, notIdentified: total.notIdentified + metric.notIdentified }), { total: 0, nextOnly: 0, classicToggle: 0, notIdentified: 0 });
+    return simpleTable(
+      ["Company Industry", "Next Only", "Classic / Toggle", "Not Identified", "% Next Only", "Total"],
+      metrics.map((metric) => {
+        const industryDrill = { industry: metric.industry };
+        return [
+          { display: metric.industry, value: metric.industry, drill: industryDrill },
+          { display: formatNumber(metric.nextOnly), value: metric.nextOnly, heat: true, drill: { ...industryDrill, netSuiteNextRecommendation: "Next Only" } },
+          { display: formatNumber(metric.classicToggle), value: metric.classicToggle, heat: true, drill: { ...industryDrill, netSuiteNextRecommendation: "Classic / Toggle" } },
+          { display: formatNumber(metric.notIdentified), value: metric.notIdentified, heat: true, drill: { ...industryDrill, netSuiteNextRecommendation: "Not Identified" } },
+          { display: `${percent(metric.nextOnly, metric.total)}%`, value: metric.total ? metric.nextOnly / metric.total : 0, heat: true, drill: { ...industryDrill, netSuiteNextRecommendation: "Next Only" } },
+          { display: formatNumber(metric.total), value: metric.total, heat: true, drill: industryDrill }
+        ];
+      }),
+      [
+        { display: "Total", value: "Total" },
+        { display: formatNumber(totals.nextOnly), value: totals.nextOnly },
+        { display: formatNumber(totals.classicToggle), value: totals.classicToggle },
+        { display: formatNumber(totals.notIdentified), value: totals.notIdentified },
+        { display: `${percent(totals.nextOnly, totals.total)}%`, value: totals.total ? totals.nextOnly / totals.total : 0 },
+        { display: formatNumber(totals.total), value: totals.total }
+      ],
+      { key: "netsuite-next-only-company-industry" }
+    );
+  }
+
+  function nextOnlyIndustrySubgroupTable(summary) {
+    const metrics = nextOnlyIndustryMetrics(summary.rows.reduce((subgroupRows, row) => {
+      subgroupRows.push({ ...row, industry: row.industrySubgroup });
+      return subgroupRows;
+    }, []));
+    const totals = metrics.reduce((total, metric) => ({ total: total.total + metric.total, nextOnly: total.nextOnly + metric.nextOnly, classicToggle: total.classicToggle + metric.classicToggle, notIdentified: total.notIdentified + metric.notIdentified }), { total: 0, nextOnly: 0, classicToggle: 0, notIdentified: 0 });
+    return simpleTable(
+      ["Industry Subgroup", "Next Only", "Classic / Toggle", "Not Identified", "% Next Only", "Total"],
+      metrics.map((metric) => {
+        const subgroupDrill = { industrySubgroup: metric.industry };
+        return [
+          { display: metric.industry, value: metric.industry, drill: subgroupDrill },
+          { display: formatNumber(metric.nextOnly), value: metric.nextOnly, heat: true, drill: { ...subgroupDrill, netSuiteNextRecommendation: "Next Only" } },
+          { display: formatNumber(metric.classicToggle), value: metric.classicToggle, heat: true, drill: { ...subgroupDrill, netSuiteNextRecommendation: "Classic / Toggle" } },
+          { display: formatNumber(metric.notIdentified), value: metric.notIdentified, heat: true, drill: { ...subgroupDrill, netSuiteNextRecommendation: "Not Identified" } },
+          { display: `${percent(metric.nextOnly, metric.total)}%`, value: metric.total ? metric.nextOnly / metric.total : 0, heat: true, drill: { ...subgroupDrill, netSuiteNextRecommendation: "Next Only" } },
+          { display: formatNumber(metric.total), value: metric.total, heat: true, drill: subgroupDrill }
+        ];
+      }),
+      [
+        { display: "Total", value: "Total" },
+        { display: formatNumber(totals.nextOnly), value: totals.nextOnly },
+        { display: formatNumber(totals.classicToggle), value: totals.classicToggle },
+        { display: formatNumber(totals.notIdentified), value: totals.notIdentified },
+        { display: `${percent(totals.nextOnly, totals.total)}%`, value: totals.total ? totals.nextOnly / totals.total : 0 },
+        { display: formatNumber(totals.total), value: totals.total }
+      ],
+      { key: "netsuite-next-only-industry-subgroup" }
+    );
+  }
+
+  function netSuiteNextDashboardBody(summary, selectedStyles) {
+    const identifiedDemos = summary.rows.filter((row) => demoStyleLabel(row) !== "Not Identified").length;
+    const nextDemos = summary.rows.filter((row) => demoStyleLabel(row) === "Next").length;
+    const nextOnly = summary.rows.filter((row) => isNetSuiteNextOnlyValue(row.netSuiteNextOnly)).length;
+    return `
+      <div class="scd-kpis">
+        ${kpi("Demo Requests", summary.total)}
+        ${kpi("Identified Demo Style", identifiedDemos, `${percent(identifiedDemos, summary.total)}% of requests`)}
+        ${kpi("Next Demos", nextDemos, `${percent(nextDemos, summary.total)}% of requests`)}
+        ${kpi("NetSuite Next Only", nextOnly, `${percent(nextOnly, summary.total)}% provisioning recommendation`)}
+      </div>
+      <div class="scd-panel scd-deep-grid">
+        <div class="scd-panel-title">Demo Style by SC Industry</div>
+        ${demoStyleIndustryTable(summary)}
+      </div>
+      <div class="scd-panel scd-deep-grid">
+        <div class="scd-panel-title scd-panel-title-actions"><span>Demo Style Progression</span>${demoStyleTrendControls(selectedStyles)}</div>
+        ${demoStyleTrendChart(summary.rows, selectedStyles)}
+      </div>
+      <div class="scd-panel scd-deep-grid">
+        <div class="scd-panel-title">NetSuite Next Only by Company Industry</div>
+        ${nextOnlyIndustryTable(summary)}
+      </div>
+    `;
+  }
+
   function industryFamilyMetrics(summary) {
     const summaryMonths = monthCountForRows(summary.rows);
     return verticalSummariesFromRows(summary.rows).map((vertical) => {
@@ -3942,6 +4240,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       leadsc: "Shows whether this staffed SC is the lead SC or a supporting SC.",
       shadow: "Shows whether the SC is shadowing the request instead of actively staffing it.",
       netsuitenextonly: "Flags SCRs marked NetSuite Next Only in the saved search.",
+      demostyle: "Demo approach from the saved search: Classic, Hybrid, Next, or Not Identified.",
       company: "Customer or prospect tied to the SC Request.",
       billingstateprovince: "Billing State/Province from the saved search, used to assess geographic staffing volume.",
       vrank: "Customer VRank value from the saved search.",
@@ -3988,6 +4287,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       salesrep: "Sales rep tied to the opportunity/request.",
       salesmanager: "Front-line Sales Manager tied to the sales rep.",
       scmhashtags: "SCM hashtag field from NetSuite, used for #gravity tracking.",
+      scmanagernotes3: "Detail of what the SC demonstrated to the prospect.",
+      date: "Request date from the saved search, using the available date field such as Exp Close.",
       month: "Month bucket derived from the request date.",
       volume: "Count of SC Requests in the current view/filter context.",
       volmo: "Volume per month across the selected dataset date range.",
@@ -4037,13 +4338,14 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function tableCell(cell, heatRange, options = {}) {
     const display = cellDisplay(cell);
     const value = cellValue(cell);
+    const truncate = Boolean(options.truncate || (cell && typeof cell === "object" && cell.truncate));
     const useHeat = Boolean(heatRange && cell && typeof cell === "object" && cell.heat && typeof value === "number" && Number.isFinite(value));
     const style = useHeat ? ` style="${heatStyle(value, heatRange.min, heatRange.max)}"` : "";
     const classList = [];
     if (useHeat) classList.push("scd-heat");
-    if (options.truncate) classList.push("scd-cell-truncate");
+    if (truncate) classList.push("scd-cell-truncate");
     const className = classList.length ? ` class="${classList.join(" ")}"` : "";
-    const title = options.truncate ? ` title="${escapeHtml(display)}"` : "";
+    const title = truncate ? ` title="${escapeHtml(display)}"` : "";
     const sortValue = value === null || value === undefined || Number.isNaN(value) ? display : value;
     const drill = cell && typeof cell === "object" && cell.drill ? ` data-scd-drill='${drillAttr(cell.drill)}'` : "";
     const content = cell && typeof cell === "object" && cell.html ? display : escapeHtml(display);
@@ -4136,6 +4438,23 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function exportDemoStyleTrendCsv(rows) {
+    const csvRows = [
+      ["Month", ...DEMO_STYLES],
+      ...demoStyleTrendRows(rows).map((row) => [row.month, ...DEMO_STYLES.map((style) => row[style])])
+    ];
+    const csv = csvRows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "demo-style-progression.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function tableToCsv(table) {
     return Array.from(table.querySelectorAll("tr"))
       .map((row) => Array.from(row.querySelectorAll("th,td")).map((cell) => csvCell(cell.textContent || "")).join(","))
@@ -4218,6 +4537,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         if (key === "forecastGrade") return forecastGradeLabel(row) === value;
         if (key === "industrySubgroup") return normalizeText(row.industrySubgroup) === normalizeText(value);
         if (key === "product") return productList(row).some((productName) => normalizeText(productName) === normalizeText(value));
+        if (key === "demoStyle") return demoStyleLabel(row) === value;
+        if (key === "netSuiteNextRecommendation") return netSuiteNextRecommendationLabel(row) === value;
         if (key === "arrCommitBucket") return arrCommitDealKeys.has(uniqueDealKey(row, rowIndex));
         if (key === "acvCommitBucket") return acvCommitDealKeys.has(uniqueDealKey(row, rowIndex));
         return normalizeText(row[key]) === normalizeText(value);
@@ -4286,6 +4607,10 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
                 <div class="scd-panel-title">Staffed SCs</div>
                 ${staffedScTable(summary)}
               </div>
+              ${state.filters.industry ? `<div class="scd-panel">
+                <div class="scd-panel-title">NetSuite Next Only by Industry Subgroup</div>
+                ${nextOnlyIndustrySubgroupTable(summary)}
+              </div>` : ""}
               <div class="scd-grid">
                 <div class="scd-panel">
                   <div class="scd-panel-title">ARR Commit Distribution</div>
@@ -4515,13 +4840,14 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function detailTable(rows) {
     const detailSummary = summaryFromRows("Detail", rows);
     return simpleTable(
-      ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "ACV Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "Month"],
+      ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Demo Style", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Legacy Org", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Team", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Industry Family", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "SC Status", "Probability", "ARR Commit", "MGR Commit", "VL Commit", "ACV Commit", "Pipeline Rev", "Closed Rev", "Revenue", "Weighted Rev", "Sales Rep", "SCM Hashtags", "SC Manager Notes 3", "Date", "Month"],
       rows.slice(0, 500).map((row) => [
         requestRecordLink(row.internalId),
         gravityFlagCell(row),
         leadScCell(row),
         shadowCell(row),
         netSuiteNextOnlyLabel(row),
+        { display: demoStyleLabel(row), value: demoStyleLabel(row), drill: { demoStyle: demoStyleLabel(row) } },
         row.company,
         { display: row.billingState, value: row.billingState, drill: { billingState: row.billingState } },
         { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
@@ -4559,6 +4885,8 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         formatCurrency(weightedRevenue(row)),
         row.salesRep,
         row.hashtags,
+        { display: row.notes?.scManagerNotes3 || "", value: row.notes?.scManagerNotes3 || "", truncate: true },
+        row.date || row.dateValue,
         row.month
       ])
     ) + (rows.length > 500 ? `<div class="scd-warning">Showing first 500 of ${formatNumber(rows.length)} matching requests.</div>` : "");
@@ -4567,7 +4895,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   function dealLookupDetailTable(rows) {
     const detailSummary = summaryFromRows("Deal Lookup Detail", rows);
     const shownRows = rows.slice(0, 500);
-    const headers = ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "ACV Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Month", "Notes"];
+    const headers = ["ID", "Flag", "Lead SC", "Shadow", "NetSuite Next Only", "Demo Style", "Company", "Billing State/Province", "VRank", "Renewal Rank", "Opportunity", "SC", "Current Manager", "Team Manager", "SC VP", "SC Sr Dir", "SC Director", "Sales Team", "Sales Vertical", "Sales GVP", "Sales AVP", "Sales VP", "Company Industry", "Industry Subgroup", "Request Type", "Deliverable", "Products", "Opp Status", "Forecast Grade", "SC Status", "ARR Commit", "MGR Commit", "VL Commit", "ACV Commit", "Pipeline Rev", "Revenue", "Weighted Rev", "Sales Rep", "Sales Manager", "Date", "Month", "Notes"];
     if (!shownRows.length) return `<div class="scd-warning">No deal lookup rows found.</div>`;
     return `
       ${definitionsBlock(headers)}
@@ -4584,6 +4912,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
                   leadScCell(row),
                   shadowCell(row),
                   netSuiteNextOnlyLabel(row),
+                  { display: demoStyleLabel(row), value: demoStyleLabel(row), drill: { demoStyle: demoStyleLabel(row) } },
                   row.company,
                   { display: row.billingState, value: row.billingState, drill: { billingState: row.billingState } },
                   { display: row.vrank, value: row.vrank, drill: { vrank: row.vrank } },
@@ -4617,6 +4946,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
                   formatCurrency(weightedRevenue(row)),
                   row.salesRep,
                   row.salesManager,
+                  row.date || row.dateValue,
                   row.month,
                   { display: `${formatNumber(noteEntries.length)} notes`, value: noteEntries.length }
                 ];
