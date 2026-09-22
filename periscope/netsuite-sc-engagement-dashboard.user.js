@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.24
+// @version      2.13.25
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.24",
+    version: "2.13.25",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -1485,6 +1485,22 @@
       .scd-filterbar button {
         margin-left: 0;
       }
+      .scd-sales-team-filter {
+        align-items: center;
+        border-top: 1px solid var(--rw-line);
+        display: flex;
+        flex-basis: 100%;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 2px;
+        padding-top: 10px;
+      }
+      .scd-sales-team-filter-title {
+        color: var(--rw-ink-deep);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
       .scd-tab {
         border: 1px solid var(--rw-muted);
         border-radius: 999px;
@@ -2269,7 +2285,9 @@
       });
       root.querySelectorAll("[data-scd-dashboard-filter]").forEach((input) => {
         input.addEventListener("change", (event) => {
-          dashboardFilters[event.target.getAttribute("data-scd-dashboard-filter")] = event.target.value;
+          const key = event.target.getAttribute("data-scd-dashboard-filter");
+          dashboardFilters[key] = event.target.value;
+          if (isSalesTeamFilterKey(key)) resetSalesTeamFilterDescendants(dashboardFilters, key);
           render();
         });
       });
@@ -2492,6 +2510,14 @@
     return !needle || text.includes(needle);
   }
 
+  const SALES_TEAM_FILTER_FIELDS = [
+    { key: "salesGvp", field: "salesGvp", label: "GVP" },
+    { key: "salesAvp", field: "salesAvp", label: "AVP" },
+    { key: "salesVp", field: "salesVp", label: "VL" },
+    { key: "salesManager", field: "salesManager", label: "Sales Manager" },
+    { key: "salesRep", field: "salesRep", label: "Sales Rep" }
+  ];
+
   function makeEmptyDashboardFilters() {
     return {
       orgs: null,
@@ -2501,10 +2527,48 @@
       netSuiteNextOnly: "all",
       crossStaffed: "all",
       salesVertical: "all",
+      salesGvp: "all",
+      salesAvp: "all",
+      salesVp: "all",
+      salesManager: "all",
+      salesRep: "all",
       includeValue: "No",
       startDate: "",
       endDate: ""
     };
+  }
+
+  function isSalesTeamFilterKey(key) {
+    return SALES_TEAM_FILTER_FIELDS.some((field) => field.key === key);
+  }
+
+  function resetSalesTeamFilterDescendants(filters, selectedKey) {
+    const selectedIndex = SALES_TEAM_FILTER_FIELDS.findIndex((field) => field.key === selectedKey);
+    if (selectedIndex === -1) return;
+    SALES_TEAM_FILTER_FIELDS.slice(selectedIndex + 1).forEach((field) => {
+      filters[field.key] = "all";
+    });
+  }
+
+  function salesTeamHierarchyOptions(rows, filters) {
+    return Object.fromEntries(
+      SALES_TEAM_FILTER_FIELDS.map((field, index) => {
+        const upstreamFields = SALES_TEAM_FILTER_FIELDS.slice(0, index);
+        const scopedRows = rows.filter((row) =>
+          upstreamFields.every((upstream) =>
+            filters[upstream.key] === "all" || normalizeText(row[upstream.field]) === normalizeText(filters[upstream.key])
+          )
+        );
+        const values = Array.from(new Set(scopedRows.map((row) => normalizeText(row[field.field])).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+        return [field.key, values];
+      })
+    );
+  }
+
+  function rowMatchesSalesTeamFilters(row, filters) {
+    return SALES_TEAM_FILTER_FIELDS.every((field) =>
+      filters[field.key] === "all" || normalizeText(row[field.field]) === normalizeText(filters[field.key])
+    );
   }
 
   function dashboardFilterBar(rows, filters) {
@@ -2512,6 +2576,7 @@
     const minDate = dates[0] || "";
     const maxDate = dates[dates.length - 1] || "";
     const orgOptions = requestTypeOptionsForRows(rows);
+    const salesTeamOptions = salesTeamHierarchyOptions(rows, filters);
     return `
       <div class="scd-filterbar">
         ${multiFilterSelect("Org", "orgs", orgOptions, filters.orgs)}
@@ -2531,6 +2596,10 @@
           <input type="date" data-scd-dashboard-filter="endDate" value="${escapeHtml(filters.endDate)}" ${minDate ? `min="${escapeHtml(minDate)}"` : ""} ${maxDate ? `max="${escapeHtml(maxDate)}"` : ""}>
         </label>
         <button class="scd-tab" type="button" data-scd-clear-dashboard-filters>Clear filters</button>
+        <div class="scd-sales-team-filter">
+          <span class="scd-sales-team-filter-title">Sales Team Filter</span>
+          ${SALES_TEAM_FILTER_FIELDS.map((field) => filterSelectWithAttr(field.label, field.key, salesTeamOptions[field.key], filters[field.key], "data-scd-dashboard-filter")).join("")}
+        </div>
       </div>
     `;
   }
@@ -2548,6 +2617,7 @@
       if (filters.crossStaffed === "Cross Staffed Only" && !isCrossStaffedRow(row)) return false;
       if (filters.crossStaffed === "Not Cross Staffed" && isCrossStaffedRow(row)) return false;
       if (filters.salesVertical !== "all" && salesVerticalFilterValue(row) !== filters.salesVertical) return false;
+      if (!rowMatchesSalesTeamFilters(row, filters)) return false;
       if (filters.includeValue !== "Yes" && isValueManagementRow(row)) return false;
       if (filters.startDate && (!row.dateValue || row.dateValue < filters.startDate)) return false;
       if (filters.endDate && (!row.dateValue || row.dateValue > filters.endDate)) return false;
