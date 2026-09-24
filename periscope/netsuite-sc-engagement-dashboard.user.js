@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.25
+// @version      2.13.26
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.25",
+    version: "2.13.26",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -2651,15 +2651,17 @@
   }
 
   function verticalBars(verticals, maxTotal) {
+    const displayedTotal = verticals.reduce((sum, vertical) => sum + vertical.total, 0);
     return verticals
       .map((vertical) => {
-        const pct = Math.max(2, Math.round((vertical.total / maxTotal) * 100));
+        const barPct = Math.max(2, Math.round((vertical.total / maxTotal) * 100));
         const ratio = maxTotal ? vertical.total / maxTotal : 0;
+        const sharePct = displayedTotal ? Math.round((vertical.total / displayedTotal) * 100) : 0;
         return `
           <div class="scd-bar-row" data-scd-drill='${drillAttr({ vertical: vertical.name })}'>
             <div>${escapeHtml(vertical.name)}</div>
-            <div class="scd-bar-track"><div class="scd-bar-fill" style="width:${pct}%; background:${signalColor(ratio)}"></div></div>
-            <div>${formatNumber(vertical.total)}</div>
+            <div class="scd-bar-track"><div class="scd-bar-fill" style="width:${barPct}%; background:${signalColor(ratio)}"></div></div>
+            <div>${formatNumber(vertical.total)} (${sharePct}%)</div>
           </div>
         `;
       })
