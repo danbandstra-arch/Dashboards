@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NetSuite SC Engagement Dashboard
 // @namespace    codex.sc-engagement-dashboard
-// @version      2.13.26
+// @version      2.13.27
 // @description  Adds a popup SC engagement dashboard to a NetSuite saved search result table.
 // @author       Codex
 // @updateURL    https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js
@@ -20,7 +20,7 @@
 
   const CONFIG = {
     title: "SC Engagement Dashboard",
-    version: "2.13.26",
+    version: "2.13.27",
     monthOverMonthStartMonth: "2026-06",
     updateUrl: "https://raw.githubusercontent.com/danbandstra-arch/Dashboards/main/periscope/netsuite-sc-engagement-dashboard.user.js",
     fiscalStartMonth: 6,
@@ -58,6 +58,7 @@
       salesVertical: ["Sales Vertical", "Industry Group", "Sales Industry Group"],
       industry: ["Company Industry", "Customer Industry", "Industry"],
       industrySubgroup: ["Industry Subgroup", "Industry Sub-Group", "Sub Industry", "Sub-Industry", "Company Industry Subgroup", "Company Industry Sub Group"],
+      annualRevenue: ["Annual Revenue", "Customer Annual Revenue", "Estimated Annual Revenue"],
       requestType: ["Request Type"],
       salesTeam: ["Sales Team", "Sales Org", "Sales Organization"],
       legacyOrg: ["Legacy Org", "Legacy Organization", "SC Legacy Org"],
@@ -622,6 +623,7 @@
     const salesVerticalIdx = findColumnIndex(headers, CONFIG.columnAliases.salesVertical);
     const industrySubgroupIdx = findColumnIndex(headers, CONFIG.columnAliases.industrySubgroup);
     const industryIdx = findColumnIndex(headers, CONFIG.columnAliases.industry, [industrySubgroupIdx]);
+    const annualRevenueIdx = findColumnIndex(headers, CONFIG.columnAliases.annualRevenue);
     const requestTypeIdx = findColumnIndex(headers, CONFIG.columnAliases.requestType);
     const salesTeamIdx = findColumnIndex(headers, CONFIG.columnAliases.salesTeam);
     const legacyOrgIdx = findColumnIndex(headers, CONFIG.columnAliases.legacyOrg);
@@ -689,6 +691,7 @@
         salesVerticalSource: hasSalesVerticalSource,
         industry: industryIdx >= 0 ? cells[industryIdx] || "(blank)" : "(industry column missing)",
         industrySubgroup: industrySubgroupIdx >= 0 ? cells[industrySubgroupIdx] || "(blank)" : "(industry subgroup column missing)",
+        annualRevenue: annualRevenueIdx >= 0 ? cells[annualRevenueIdx] || "(blank)" : "(blank)",
         requestType: cells[requestTypeIdx] || "(blank)",
         salesTeam: salesTeamIdx >= 0 ? normalizeOrg(cells[salesTeamIdx]) : normalizeOrg(cells[requestTypeIdx]),
         legacyOrg: legacyOrgIdx >= 0 ? normalizeOrg(cells[legacyOrgIdx]) : "(legacy org missing)",
@@ -1055,6 +1058,7 @@
       byBillingState: new Map(),
       byDeliverable: new Map(),
       byIndustry: new Map(),
+      byAnnualRevenue: new Map(),
       byForecastGrade: new Map(),
       byVRank: new Map(),
       byRenewalRank: new Map(),
@@ -1080,6 +1084,7 @@
     incrementMap(summary.byBillingState, row.billingState || "(blank)");
     incrementMap(summary.byDeliverable, deliverableLabel(row));
     incrementMap(summary.byIndustry, row.industry || "(blank)");
+    incrementMap(summary.byAnnualRevenue, row.annualRevenue || "(blank)");
     incrementMap(summary.byForecastGrade, forecastGradeLabel(row));
     addCustomerRankMetric(summary.byVRank, row.vrank, row);
     addCustomerRankMetric(summary.byRenewalRank, row.renewalRank, row);
@@ -2236,6 +2241,10 @@
               ${rankedTable(active.byIndustry, "Company Industry", 0, active.total)}
             </div>` : ""}
             ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
+              <div class="scd-panel-title">Annual Revenue Mix</div>
+              ${rankedTable(active.byAnnualRevenue, "Annual Revenue", 0, active.total)}
+            </div>` : ""}
+            ${isVerticalView ? `<div class="scd-panel scd-deep-grid">
               <div class="scd-panel-title">Industry Subgroup by Sales Motion</div>
               ${industrySubgroupMotionTable(active)}
             </div>` : ""}
@@ -3218,6 +3227,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
   }
 
   function drillForLabel(label, value) {
+    if (/annual revenue/i.test(label)) return { annualRevenue: value };
     if (/team manager/i.test(label)) return { teamManager: value };
     if (/manager/i.test(label)) return { manager: value };
     if (/deliverable/i.test(label)) return { deliverable: value };
@@ -4379,6 +4389,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
       industryfamily: "SC-side vertical or industry family owning the staffed SC.",
       companyindustry: "Customer/prospect industry from the saved search.",
       industrysubgroup: "More specific child industry grouping under Company Industry.",
+      annualrevenue: "Customer estimated annual revenue from the saved search, grouped into the provided revenue bands.",
       requesttype: "Request Type from NetSuite, normalized into AMO, Direct, Channel, Value, SCAI, or TCOE where applicable.",
       deliverable: "Engagement deliverable type. Blank AMO/Direct deliverables are labeled so missing values still count.",
       products: "Engagement Product(s) from the saved search. Used to analyze which products are driving Upsell and Platform staffing.",
@@ -4651,6 +4662,7 @@ function rankedTable(map, label, limit = 10, denominator = 0) {
         if (key === "vrank") return normalizeText(row.vrank) === normalizeText(value);
         if (key === "renewalRank") return normalizeText(row.renewalRank) === normalizeText(value);
         if (key === "forecastGrade") return forecastGradeLabel(row) === value;
+        if (key === "annualRevenue") return normalizeText(row.annualRevenue) === normalizeText(value);
         if (key === "industrySubgroup") return normalizeText(row.industrySubgroup) === normalizeText(value);
         if (key === "product") return productList(row).some((productName) => normalizeText(productName) === normalizeText(value));
         if (key === "demoStyle") return demoStyleLabel(row) === value;
